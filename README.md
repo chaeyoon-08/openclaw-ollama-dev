@@ -70,7 +70,8 @@ Refresh Token 발급: [구글 OAuth 2.0 가이드](https://developers.google.com
 | `GOOGLE_CLIENT_ID` | Google Cloud Console에서 발급 |
 | `GOOGLE_CLIENT_SECRET` | Google Cloud Console에서 발급 |
 | `GOOGLE_REFRESH_TOKEN` | OAuth 인증 후 발급 |
-| `OLLAMA_MODEL` | 사용할 기본 Ollama 모델 (예: `qwen3:32b-q4_K_M`) |
+| `OLLAMA_MODEL` | 오케스트레이터용 모델 (예: `qwen3:32b-q4_K_M`) |
+| `OLLAMA_SUBAGENT_MODEL` | 서브에이전트용 모델 (예: `qwen3:8b`) |
 | `OLLAMA_FALLBACK_MODEL` | 기본 모델 실패 시 대체 모델 (예: `glm-4.7-flash`) |
 
 ---

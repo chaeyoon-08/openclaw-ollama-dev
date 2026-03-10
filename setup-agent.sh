@@ -45,7 +45,10 @@ set -a; source "$OPENCLAW_DIR/.env"; set +a
 if [ -z "$OLLAMA_MODEL" ]; then
   error "OLLAMA_MODEL이 설정되지 않았습니다. setup.sh를 먼저 실행해 주세요."
 fi
-info "사용 모델: $OLLAMA_MODEL"
+if [ -z "$OLLAMA_SUBAGENT_MODEL" ]; then
+  error "OLLAMA_SUBAGENT_MODEL이 설정되지 않았습니다. setup.sh를 먼저 실행해 주세요."
+fi
+info "오케스트레이터 모델: $OLLAMA_MODEL  /  서브에이전트 모델: $OLLAMA_SUBAGENT_MODEL"
 
 # ── 2. 워크스페이스 준비 ──────────────────────────────────
 section "에이전트 워크스페이스 준비"

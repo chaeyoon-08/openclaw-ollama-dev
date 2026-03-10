@@ -59,8 +59,7 @@ status_var() {
   fi
   case "$mode" in
     full)    info "${var}: ${val}" ;;
-    partial) info "${var}: ${val:0:10}***" ;;
-    masked)  info "${var}: 설정됨" ;;
+    partial) info "${var}: ${val:0:4}$(printf '%*s' "$(( ${#val} > 4 ? ${#val} - 4 : 0 ))" '' | tr ' ' '*')" ;;
   esac
 }
 status_var TELEGRAM_BOT_TOKEN    partial
@@ -182,6 +181,7 @@ mkdir -p "$OPENCLAW_DIR"
   printf 'TELEGRAM_BOT_TOKEN=%s\n'     "${TELEGRAM_BOT_TOKEN}"
   printf 'OLLAMA_API_KEY=%s\n'         "ollama-local"
   printf 'OLLAMA_MODEL=%s\n'           "${OLLAMA_MODEL}"
+  printf 'OLLAMA_SUBAGENT_MODEL=%s\n'  "${OLLAMA_SUBAGENT_MODEL}"
   printf 'OLLAMA_FALLBACK_MODEL=%s\n'  "${OLLAMA_FALLBACK_MODEL}"
   printf 'NODE_OPTIONS=%s\n'          "--dns-result-order=ipv4first"
 } > "$OPENCLAW_DIR/.env"
