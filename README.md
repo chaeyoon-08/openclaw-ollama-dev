@@ -70,12 +70,8 @@ Refresh Token 발급: [구글 OAuth 2.0 가이드](https://developers.google.com
 | `GOOGLE_CLIENT_ID` | Google Cloud Console에서 발급 |
 | `GOOGLE_CLIENT_SECRET` | Google Cloud Console에서 발급 |
 | `GOOGLE_REFRESH_TOKEN` | OAuth 인증 후 발급 |
-| `GITHUB_TOKEN` | GitHub Personal Access Token |
-| `GITHUB_USER_EMAIL` | GitHub 계정 이메일 |
-| `GITHUB_USER_NAME` | GitHub 계정 이름 (실명, `git log`에 표시됨) |
-| `GITHUB_LOGIN` | GitHub 로그인 아이디 (공백 없음, 예: `johndoe`) |
-| `OLLAMA_MODEL` | (선택) 기본값: `qwen3-coder:32b` |
-| `OLLAMA_FALLBACK_MODEL` | (선택) 기본값: `glm-4.7` |
+| `OLLAMA_MODEL` | 사용할 기본 Ollama 모델 (예: `qwen3:32b-q4_K_M`) |
+| `OLLAMA_FALLBACK_MODEL` | 기본 모델 실패 시 대체 모델 (예: `glm-4.7-flash`) |
 
 ---
 
@@ -86,15 +82,15 @@ Refresh Token 발급: [구글 OAuth 2.0 가이드](https://developers.google.com
 git clone https://github.com/your-org/openclaw-ollama-dev.git
 cd openclaw-ollama-dev
 
-# 2. 환경변수 설정
-export TELEGRAM_BOT_TOKEN="your-bot-token"
-export GOOGLE_CLIENT_ID="your-client-id"
-export GOOGLE_CLIENT_SECRET="your-client-secret"
-export GOOGLE_REFRESH_TOKEN="your-refresh-token"
-export GITHUB_TOKEN="your-github-token"
-export GITHUB_USER_EMAIL="your@email.com"
-export GITHUB_USER_NAME="Your Name"
-export GITHUB_LOGIN="your-github-id"
+# 2. 환경변수 설정 (.env 파일 작성 권장)
+cp .env.example .env
+# .env 파일을 열어 값을 채워주세요:
+#   TELEGRAM_BOT_TOKEN=your-bot-token
+#   GOOGLE_CLIENT_ID=your-client-id
+#   GOOGLE_CLIENT_SECRET=your-client-secret
+#   GOOGLE_REFRESH_TOKEN=your-refresh-token
+#   OLLAMA_MODEL=qwen3:32b-q4_K_M
+#   OLLAMA_FALLBACK_MODEL=glm-4.7-flash
 
 # 3. 실행 권한 부여
 chmod +x setup.sh setup-agent.sh

@@ -42,7 +42,9 @@ section ".env 로드"
 
 set -a; source "$OPENCLAW_DIR/.env"; set +a
 
-OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3-coder:32b}"
+if [ -z "$OLLAMA_MODEL" ]; then
+  error "OLLAMA_MODEL이 설정되지 않았습니다. setup.sh를 먼저 실행해 주세요."
+fi
 info "사용 모델: $OLLAMA_MODEL"
 
 # ── 2. 워크스페이스 준비 ──────────────────────────────────
@@ -92,7 +94,7 @@ section "OpenClaw 게이트웨이 시작"
 
 if ! openclaw gateway status &>/dev/null; then
   info "게이트웨이 시작 중..."
-  openclaw gateway start --background
+  openclaw gateway > /tmp/openclaw-gateway.log 2>&1 &
   sleep 5
   info "게이트웨이 시작 완료"
 else
@@ -167,6 +169,7 @@ echo ""
 echo "  ── 런타임 모니터링 ──────────────────────────────"
 echo "  openclaw tui                    터미널 대시보드 (전체 현황)"
 echo "  openclaw gateway logs --follow  실시간 처리 로그"
+echo "  tail -f /tmp/openclaw-gateway.log  게이트웨이 로그"
 echo "  openclaw status                 게이트웨이·채널 상태 요약"
 echo "  openclaw agents list            등록 에이전트 확인"
 echo "  openclaw agents bindings        봇↔에이전트 연결 확인"

@@ -8,14 +8,9 @@
 #   GOOGLE_CLIENT_ID      — Google Cloud Console OAuth 클라이언트 ID
 #   GOOGLE_CLIENT_SECRET  — Google Cloud Console OAuth 클라이언트 시크릿
 #   GOOGLE_REFRESH_TOKEN  — Google OAuth Refresh Token
-#   GITHUB_TOKEN          — GitHub Personal Access Token
-#   GITHUB_USER_EMAIL     — GitHub 계정 이메일
-#   GITHUB_USER_NAME      — GitHub 계정 이름 (실명, git log에 표시)
-#   GITHUB_LOGIN          — GitHub 로그인 아이디 (공백 없음, 예: johndoe)
 #
-# 선택 환경변수:
-#   OLLAMA_MODEL          — 기본값: qwen3-coder:32b
-#   OLLAMA_FALLBACK_MODEL — 기본값: glm-4.7
+#   OLLAMA_MODEL          — 사용할 기본 Ollama 모델 (예: qwen3-coder:32b)
+#   OLLAMA_FALLBACK_MODEL — 기본 모델 실패 시 대체 모델 (예: glm4:latest)
 # =============================================================
 
 set -eo pipefail
@@ -54,24 +49,36 @@ else
   info ".env 파일 없음 — 환경변수에서 값을 사용합니다."
 fi
 
-check_var() {
-  local var="$1" suffix="$2"
-  [ -z "${!var}" ] && info "${var}${suffix} 설정되지 않았습니다. .env 파일을 작성하거나 워크로드의 환경변수를 추가해주세요."
+status_var() {
+  local var="$1" mode="$2"
+  local val="${!var}"
+  if [ -z "$val" ]; then
+    info "${var}: 미설정"
+    return
+  fi
+  case "$mode" in
+    full)    info "${var}: ${val}" ;;
+    partial) info "${var}: ${val:0:10}***" ;;
+    masked)  info "${var}: 설정됨" ;;
+  esac
 }
-check_var TELEGRAM_BOT_TOKEN    "이"
-check_var GOOGLE_CLIENT_ID      "가"
-check_var GOOGLE_CLIENT_SECRET  "이"
-check_var GOOGLE_REFRESH_TOKEN  "이"
-check_var OLLAMA_MODEL          "이"
-check_var OLLAMA_FALLBACK_MODEL "이"
+status_var TELEGRAM_BOT_TOKEN    partial
+status_var GOOGLE_CLIENT_ID      partial
+status_var GOOGLE_CLIENT_SECRET  partial
+status_var GOOGLE_REFRESH_TOKEN  partial
+status_var OLLAMA_MODEL          full
+status_var OLLAMA_FALLBACK_MODEL full
 
-: "${GITHUB_TOKEN:?'GITHUB_TOKEN 이 설정되지 않았습니다'}"
-: "${GITHUB_USER_EMAIL:?'GITHUB_USER_EMAIL 이 설정되지 않았습니다'}"
-: "${GITHUB_USER_NAME:?'GITHUB_USER_NAME 이 설정되지 않았습니다'}"
-: "${GITHUB_LOGIN:?'GITHUB_LOGIN 이 설정되지 않았습니다 (GitHub 로그인 아이디, 공백 없음, 예: johndoe)'}"
-
-OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3-coder:32b}"
-OLLAMA_FALLBACK_MODEL="${OLLAMA_FALLBACK_MODEL:-glm-4.7}"
+MISSING_MODEL=false
+if [ -z "$OLLAMA_MODEL" ]; then
+  info "OLLAMA_MODEL이 설정되지 않았습니다. 워크로드의 환경변수를 추가하거나, .env.example을 참고해서 .env 파일을 작성해주세요."
+  MISSING_MODEL=true
+fi
+if [ -z "$OLLAMA_FALLBACK_MODEL" ]; then
+  info "OLLAMA_FALLBACK_MODEL이 설정되지 않았습니다. 워크로드의 환경변수를 추가하거나, .env.example을 참고해서 .env 파일을 작성해주세요."
+  MISSING_MODEL=true
+fi
+[ "$MISSING_MODEL" = true ] && exit 1
 OLLAMA_ORIGINAL_MODEL="$OLLAMA_MODEL"
 
 info "환경변수 확인 완료"
@@ -90,17 +97,7 @@ if [ "$NODE_MAJOR" -lt 18 ]; then
 fi
 info "Node.js $(node --version) 확인됨"
 
-# ── 3. Git 설정 ───────────────────────────────────────────
-section "Git 전역 설정"
-
-git config --global user.email "$GITHUB_USER_EMAIL"
-git config --global user.name "$GITHUB_USER_NAME"
-git config --global credential.helper store
-echo "https://${GITHUB_LOGIN}:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
-chmod 600 ~/.git-credentials
-info "Git 설정 완료"
-
-# ── 4. Ollama 설치 ────────────────────────────────────────
+# ── 3. Ollama 설치 ────────────────────────────────────────
 section "Ollama 설치"
 
 if ! command -v ollama &>/dev/null; then
@@ -141,6 +138,8 @@ else
   info "$OLLAMA_FALLBACK_MODEL 다운로드 완료"
 fi
 
+FINAL_MODEL="$OLLAMA_MODEL"
+
 # ── 7. OpenClaw 설치 ──────────────────────────────────────
 section "OpenClaw 설치"
 
@@ -167,9 +166,10 @@ mkdir -p "$OPENCLAW_DIR"
   printf 'OLLAMA_API_KEY=%s\n'         "ollama-local"
   printf 'OLLAMA_MODEL=%s\n'           "${OLLAMA_MODEL}"
   printf 'OLLAMA_FALLBACK_MODEL=%s\n'  "${OLLAMA_FALLBACK_MODEL}"
+  printf 'NODE_OPTIONS=%s\n'          "--dns-result-order=ipv4first"
 } > "$OPENCLAW_DIR/.env"
 chmod 600 "$OPENCLAW_DIR/.env"
-info ".env 생성 완료"
+info ".env 파일 생성 완료: $OPENCLAW_DIR/.env"
 
 # openclaw.json 생성
 # - agents.list 와 bindings 는 setup-agent.sh 에서 CLI로 등록 (중복 방지)
@@ -182,15 +182,34 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
       "ollama": {
         "baseUrl": "http://127.0.0.1:11434",
         "apiKey": "ollama-local",
-        "api": "openai-completions"
+        "api": "ollama",
+        "models": [
+          {
+            "id": "ollama/${FINAL_MODEL}",
+            "name": "${FINAL_MODEL}",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "ollama/${OLLAMA_FALLBACK_MODEL}",
+            "name": "${OLLAMA_FALLBACK_MODEL}",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          }
+        ]
       }
     }
   },
   "agents": {
     "defaults": {
       "model": {
-        "primary": "ollama/${OLLAMA_MODEL}",
+        "primary": "ollama/${FINAL_MODEL}",
         "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+      },
+      "compaction": {
+        "mode": "safeguard"
       }
     }
   },
@@ -211,7 +230,7 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
   }
 }
 EOF
-info "openclaw.json 생성 완료"
+info "openclaw.json 생성 완료: $OPENCLAW_DIR/openclaw.json"
 
 # ── 완료 요약 ─────────────────────────────────────────────
 echo ""
