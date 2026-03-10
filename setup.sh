@@ -214,9 +214,6 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
       },
       "compaction": {
         "mode": "safeguard"
-      },
-      "timeout": {
-        "subagent": 120000
       }
     }
   },
@@ -235,6 +232,7 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
   "gateway": {
     "mode": "local",
     "auth": {
+      "mode": "token",
       "token": "$(openssl rand -hex 24)"
     }
   }
