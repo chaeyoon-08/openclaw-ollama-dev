@@ -9,8 +9,9 @@
 #   GOOGLE_CLIENT_SECRET  — Google Cloud Console OAuth 클라이언트 시크릿
 #   GOOGLE_REFRESH_TOKEN  — Google OAuth Refresh Token
 #
-#   OLLAMA_MODEL          — 사용할 기본 Ollama 모델 (예: qwen3-coder:32b)
-#   OLLAMA_FALLBACK_MODEL — 기본 모델 실패 시 대체 모델 (예: glm4:latest)
+#   OLLAMA_MODEL          — 오케스트레이터용 모델 (예: qwen3:32b-q4_K_M)
+#   OLLAMA_SUBAGENT_MODEL — 서브에이전트용 모델 (예: qwen3:8b)
+#   OLLAMA_FALLBACK_MODEL — 기본 모델 실패 시 대체 모델 (예: glm-4.7-flash)
 # =============================================================
 
 set -eo pipefail
@@ -67,11 +68,16 @@ status_var GOOGLE_CLIENT_ID      partial
 status_var GOOGLE_CLIENT_SECRET  partial
 status_var GOOGLE_REFRESH_TOKEN  partial
 status_var OLLAMA_MODEL          full
+status_var OLLAMA_SUBAGENT_MODEL full
 status_var OLLAMA_FALLBACK_MODEL full
 
 MISSING_MODEL=false
 if [ -z "$OLLAMA_MODEL" ]; then
   info "OLLAMA_MODEL이 설정되지 않았습니다. 워크로드의 환경변수를 추가하거나, .env.example을 참고해서 .env 파일을 작성해주세요."
+  MISSING_MODEL=true
+fi
+if [ -z "$OLLAMA_SUBAGENT_MODEL" ]; then
+  info "OLLAMA_SUBAGENT_MODEL이 설정되지 않았습니다. 워크로드의 환경변수를 추가하거나, .env.example을 참고해서 .env 파일을 작성해주세요."
   MISSING_MODEL=true
 fi
 if [ -z "$OLLAMA_FALLBACK_MODEL" ]; then
@@ -82,7 +88,7 @@ fi
 OLLAMA_ORIGINAL_MODEL="$OLLAMA_MODEL"
 
 info "환경변수 확인 완료"
-info "목표 모델: $OLLAMA_MODEL  /  fallback: $OLLAMA_FALLBACK_MODEL"
+info "오케스트레이터 모델: $OLLAMA_MODEL  /  서브에이전트 모델: $OLLAMA_SUBAGENT_MODEL  /  fallback: $OLLAMA_FALLBACK_MODEL"
 
 # ── 2. Node.js 확인 ───────────────────────────────────────
 section "Node.js 확인"
@@ -133,6 +139,13 @@ else
   warn "$OLLAMA_MODEL 다운로드 실패 — fallback 모델로 대체합니다."
   OLLAMA_MODEL="$OLLAMA_FALLBACK_MODEL"
   FALLBACK_USED=true
+fi
+
+info "서브에이전트 모델 다운로드 중: $OLLAMA_SUBAGENT_MODEL"
+if ollama pull "$OLLAMA_SUBAGENT_MODEL"; then
+  info "$OLLAMA_SUBAGENT_MODEL 다운로드 완료"
+else
+  warn "$OLLAMA_SUBAGENT_MODEL 다운로드 실패 — 서브에이전트 실행 시 문제가 발생할 수 있습니다."
 fi
 
 info "Fallback 모델 다운로드 중: $OLLAMA_FALLBACK_MODEL"
@@ -191,6 +204,13 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
           {
             "id": "ollama/${FINAL_MODEL}",
             "name": "${FINAL_MODEL}",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "ollama/${OLLAMA_SUBAGENT_MODEL}",
+            "name": "${OLLAMA_SUBAGENT_MODEL}",
             "reasoning": false,
             "input": ["text"],
             "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }

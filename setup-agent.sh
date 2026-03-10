@@ -108,10 +108,15 @@ section "에이전트 등록"
 
 for AGENT in orchestrator mail calendar drive; do
   WS_DIR="$OPENCLAW_DIR/workspace-${AGENT}"
-  info "${AGENT} 에이전트 등록 중..."
+  if [ "$AGENT" = "orchestrator" ]; then
+    AGENT_MODEL="$OLLAMA_MODEL"
+  else
+    AGENT_MODEL="$OLLAMA_SUBAGENT_MODEL"
+  fi
+  info "${AGENT} 에이전트 등록 중... (모델: ${AGENT_MODEL})"
   openclaw agents add "$AGENT" \
     --workspace "$WS_DIR" \
-    --model "ollama/${OLLAMA_MODEL}" \
+    --model "ollama/${AGENT_MODEL}" \
     --non-interactive \
     2>/dev/null \
     || warn "  ${AGENT}: 이미 등록됨 (건너뜀)"
@@ -131,10 +136,13 @@ openclaw gateway > /tmp/openclaw-gateway.log 2>&1 &
 sleep 10
 info "게이트웨이 재시작 완료"
 
+info "기존 바인딩 초기화 중..."
+openclaw agents unbind --agent orchestrator --all 2>/dev/null || true
+
 info "orchestrator ↔ Telegram 연결 중..."
 openclaw agents bind --agent orchestrator --bind telegram \
   2>/dev/null \
-  || warn "바인딩이 이미 존재합니다 (건너뜀)"
+  || warn "바인딩 등록 실패"
 
 if openclaw agents bindings 2>/dev/null | grep -q "orchestrator"; then
   info "바인딩 완료"
