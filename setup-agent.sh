@@ -124,6 +124,13 @@ info "에이전트 등록 완료"
 # orchestrator 가 내부적으로 mail/calendar/drive 에 위임
 section "Telegram 바인딩"
 
+info "게이트웨이 재시작 중 (Telegram 채널 초기화)..."
+pkill -f "openclaw-gateway" 2>/dev/null || true
+sleep 3
+openclaw gateway > /tmp/openclaw-gateway.log 2>&1 &
+sleep 10
+info "게이트웨이 재시작 완료"
+
 info "orchestrator ↔ Telegram 연결 중..."
 openclaw agents bind --agent orchestrator --bind telegram \
   2>/dev/null \

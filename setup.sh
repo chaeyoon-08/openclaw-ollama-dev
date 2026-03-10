@@ -105,7 +105,8 @@ if ! command -v ollama &>/dev/null; then
   curl -fsSL https://ollama.ai/install.sh | sh
   info "Ollama 설치 완료"
 else
-  info "Ollama 이미 설치됨: $(ollama --version)"
+  OLLAMA_VERSION=$(ollama --version 2>/dev/null | grep -o 'version is [0-9.]*' | awk '{print $3}')
+  info "Ollama 이미 설치됨 (서비스 실행 전) — client version: ${OLLAMA_VERSION:-unknown}"
 fi
 
 # ── 5. Ollama 서비스 시작 ─────────────────────────────────
@@ -129,13 +130,16 @@ FALLBACK_USED=false
 if ollama pull "$OLLAMA_MODEL"; then
   info "$OLLAMA_MODEL 다운로드 완료"
 else
-  warn "$OLLAMA_MODEL 다운로드 실패."
-  warn "Fallback 모델 시도 중: $OLLAMA_FALLBACK_MODEL"
-  ollama pull "$OLLAMA_FALLBACK_MODEL" \
-    || error "Fallback 모델($OLLAMA_FALLBACK_MODEL) 다운로드도 실패했습니다."
+  warn "$OLLAMA_MODEL 다운로드 실패 — fallback 모델로 대체합니다."
   OLLAMA_MODEL="$OLLAMA_FALLBACK_MODEL"
   FALLBACK_USED=true
+fi
+
+info "Fallback 모델 다운로드 중: $OLLAMA_FALLBACK_MODEL"
+if ollama pull "$OLLAMA_FALLBACK_MODEL"; then
   info "$OLLAMA_FALLBACK_MODEL 다운로드 완료"
+else
+  warn "$OLLAMA_FALLBACK_MODEL 다운로드 실패 — 타임아웃 시 404 에러가 발생할 수 있습니다."
 fi
 
 FINAL_MODEL="$OLLAMA_MODEL"
@@ -211,8 +215,8 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
       "compaction": {
         "mode": "safeguard"
       },
-      "sandbox": {
-        "mode": "all"
+      "timeout": {
+        "subagent": 120000
       }
     }
   },
