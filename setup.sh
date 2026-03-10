@@ -210,6 +210,9 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
       },
       "compaction": {
         "mode": "safeguard"
+      },
+      "sandbox": {
+        "mode": "all"
       }
     }
   },
@@ -226,7 +229,10 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
     "GOOGLE_REFRESH_TOKEN": "${GOOGLE_REFRESH_TOKEN}"
   },
   "gateway": {
-    "mode": "local"
+    "mode": "local",
+    "auth": {
+      "token": "$(openssl rand -hex 24)"
+    }
   }
 }
 EOF

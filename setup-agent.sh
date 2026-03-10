@@ -95,7 +95,7 @@ section "OpenClaw 게이트웨이 시작"
 if ! openclaw gateway status &>/dev/null; then
   info "게이트웨이 시작 중..."
   openclaw gateway > /tmp/openclaw-gateway.log 2>&1 &
-  sleep 5
+  sleep 10
   info "게이트웨이 시작 완료"
 else
   info "게이트웨이 이미 실행 중"
@@ -128,7 +128,12 @@ info "orchestrator ↔ Telegram 연결 중..."
 openclaw agents bind --agent orchestrator --bind telegram \
   2>/dev/null \
   || warn "바인딩이 이미 존재합니다 (건너뜀)"
-info "바인딩 완료"
+
+if openclaw agents bindings 2>/dev/null | grep -q "orchestrator"; then
+  info "바인딩 완료"
+else
+  warn "바인딩 검증 실패: orchestrator가 바인딩 목록에 없습니다"
+fi
 
 # ── 6. 등록 결과 확인 ─────────────────────────────────────
 section "등록 결과 확인"
