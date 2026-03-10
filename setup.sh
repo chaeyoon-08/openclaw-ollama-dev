@@ -41,10 +41,30 @@ echo ""
 # ── 1. 환경변수 확인 ──────────────────────────────────────
 section "환경변수 확인"
 
-: "${TELEGRAM_BOT_TOKEN:?'TELEGRAM_BOT_TOKEN 이 설정되지 않았습니다 (@BotFather에서 발급)'}"
-: "${GOOGLE_CLIENT_ID:?'GOOGLE_CLIENT_ID 가 설정되지 않았습니다'}"
-: "${GOOGLE_CLIENT_SECRET:?'GOOGLE_CLIENT_SECRET 이 설정되지 않았습니다'}"
-: "${GOOGLE_REFRESH_TOKEN:?'GOOGLE_REFRESH_TOKEN 이 설정되지 않았습니다'}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/.env"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
+  set +a
+  info ".env 파일 로드 완료"
+else
+  info ".env 파일 없음 — 환경변수에서 값을 사용합니다."
+fi
+
+check_var() {
+  local var="$1" suffix="$2"
+  [ -z "${!var}" ] && info "${var}${suffix} 설정되지 않았습니다. .env 파일을 작성하거나 워크로드의 환경변수를 추가해주세요."
+}
+check_var TELEGRAM_BOT_TOKEN    "이"
+check_var GOOGLE_CLIENT_ID      "가"
+check_var GOOGLE_CLIENT_SECRET  "이"
+check_var GOOGLE_REFRESH_TOKEN  "이"
+check_var OLLAMA_MODEL          "이"
+check_var OLLAMA_FALLBACK_MODEL "이"
+
 : "${GITHUB_TOKEN:?'GITHUB_TOKEN 이 설정되지 않았습니다'}"
 : "${GITHUB_USER_EMAIL:?'GITHUB_USER_EMAIL 이 설정되지 않았습니다'}"
 : "${GITHUB_USER_NAME:?'GITHUB_USER_NAME 이 설정되지 않았습니다'}"
