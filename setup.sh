@@ -230,6 +230,9 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
     "defaults": {
       "compaction": {
         "mode": "safeguard"
+      },
+      "subagents": {
+        "runTimeoutSeconds": 120
       }
     },
     "list": [
@@ -239,6 +242,9 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
         "model": {
           "primary": "ollama/${FINAL_MODEL}",
           "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+        },
+        "subagents": {
+          "allowAgents": ["mail", "calendar", "drive"]
         }
       },
       {
