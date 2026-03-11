@@ -228,14 +228,44 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
   },
   "agents": {
     "defaults": {
-      "model": {
-        "primary": "ollama/${FINAL_MODEL}",
-        "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
-      },
       "compaction": {
         "mode": "safeguard"
       }
-    }
+    },
+    "list": [
+      {
+        "id": "orchestrator",
+        "workspace": "${OPENCLAW_DIR}/workspace-orchestrator",
+        "model": {
+          "primary": "ollama/${FINAL_MODEL}",
+          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+        }
+      },
+      {
+        "id": "mail",
+        "workspace": "${OPENCLAW_DIR}/workspace-mail",
+        "model": {
+          "primary": "ollama/${OLLAMA_SUBAGENT_MODEL}",
+          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+        }
+      },
+      {
+        "id": "calendar",
+        "workspace": "${OPENCLAW_DIR}/workspace-calendar",
+        "model": {
+          "primary": "ollama/${OLLAMA_SUBAGENT_MODEL}",
+          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+        }
+      },
+      {
+        "id": "drive",
+        "workspace": "${OPENCLAW_DIR}/workspace-drive",
+        "model": {
+          "primary": "ollama/${OLLAMA_SUBAGENT_MODEL}",
+          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+        }
+      }
+    ]
   },
   "channels": {
     "telegram": {

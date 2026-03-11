@@ -104,30 +104,9 @@ else
   info "게이트웨이 이미 실행 중"
 fi
 
-# ── 4. 에이전트 등록 ──────────────────────────────────────
-# openclaw.json 의 agents.list 와 중복되지 않도록
-# 에이전트 등록은 CLI(agents add)로만 처리
-section "에이전트 등록"
-
-for AGENT in orchestrator mail calendar drive; do
-  WS_DIR="$OPENCLAW_DIR/workspace-${AGENT}"
-  if [ "$AGENT" = "orchestrator" ]; then
-    AGENT_MODEL="$OLLAMA_MODEL"
-  else
-    AGENT_MODEL="$OLLAMA_SUBAGENT_MODEL"
-  fi
-  info "${AGENT} 에이전트 등록 중... (모델: ${AGENT_MODEL})"
-  openclaw agents add "$AGENT" \
-    --workspace "$WS_DIR" \
-    --model "ollama/${AGENT_MODEL}" \
-    --non-interactive \
-    2>/dev/null \
-    || warn "  ${AGENT}: 이미 등록됨 (건너뜀)"
-done
-
-info "에이전트 등록 완료"
-
-# ── 5. 오케스트레이터 → Telegram 바인딩 ──────────────────
+# ── 4. 오케스트레이터 → Telegram 바인딩 ──────────────────
+# 에이전트 등록은 openclaw.json agents.list 에서 정의 (setup.sh 참조)
+# CLI agents add는 이미 정의된 id와 충돌하므로 사용하지 않음
 # 사용자 메시지는 모두 orchestrator 에이전트가 수신
 # orchestrator 가 내부적으로 mail/calendar/drive 에 위임
 section "Telegram 바인딩"
