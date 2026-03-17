@@ -1,0 +1,16 @@
+# secret
+.env
+
+# Claude Code
+.claude/
+CLAUDE.md
+spec/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그 및 런타임
+*.log
+/tmp/
+*.tmp
