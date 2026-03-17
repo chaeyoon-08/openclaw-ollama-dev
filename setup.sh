@@ -286,7 +286,12 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
     "GOOGLE_REFRESH_TOKEN": "${GOOGLE_REFRESH_TOKEN}"
   },
   "gateway": {
+    "port": 8080,
     "mode": "local",
+    "bind": "lan",
+    "controlUi": {
+      "dangerouslyAllowHostHeaderOriginFallback": true
+    },
     "auth": {
       "mode": "token",
       "token": "$(openssl rand -hex 24)"
