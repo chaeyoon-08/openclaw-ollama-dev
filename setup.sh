@@ -156,7 +156,23 @@ fi
 
 FINAL_MODEL="$OLLAMA_MODEL"
 
-# ── 7. OpenClaw 설치 ──────────────────────────────────────
+# ── 7. gogcli 설치 ────────────────────────────────────────
+section "gogcli 설치"
+if ! command -v gog &> /dev/null; then
+  cd /tmp
+  git clone https://github.com/steipete/gogcli.git
+  cd gogcli
+  apt-get install -y make build-essential golang-go -qq
+  make
+  cp bin/gog /usr/local/bin/gog
+  chmod +x /usr/local/bin/gog
+  cd ~
+  info "gogcli 설치 완료: $(gog --version)"
+else
+  info "gogcli 이미 설치됨: $(gog --version)"
+fi
+
+# ── 8. OpenClaw 설치 ──────────────────────────────────────
 section "OpenClaw 설치"
 
 if ! command -v openclaw &>/dev/null; then
@@ -166,7 +182,7 @@ else
   info "OpenClaw 이미 설치됨: $(openclaw --version)"
 fi
 
-# ── 8. OpenClaw 디렉터리 초기화 ───────────────────────────
+# ── 9. OpenClaw 디렉터리 초기화 ───────────────────────────
 section "OpenClaw 초기 설정"
 
 OPENCLAW_DIR="$HOME/.openclaw"
