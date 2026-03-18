@@ -10,10 +10,48 @@ Google Drive API와 Google Docs API를 통해 파일 관리와 문서 작업을 
 
 ## 인증
 
-- 방식: Google OAuth2
+- 방식: Google OAuth2 (Refresh Token → Access Token 교환)
 - 필요 환경변수: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`
 - Drive API: `https://www.googleapis.com/drive/v3`
 - Docs API: `https://docs.googleapis.com/v1`
+- 필요 스코프: `https://www.googleapis.com/auth/drive`, `https://www.googleapis.com/auth/documents`
+
+### Step 1: Access Token 발급 (모든 API 호출 전 필수)
+
+Drive/Docs API를 호출하기 전에 반드시 Refresh Token으로 Access Token을 발급받아야 한다.
+환경변수 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`을 사용한다.
+
+```
+POST https://oauth2.googleapis.com/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token
+&client_id={GOOGLE_CLIENT_ID}
+&client_secret={GOOGLE_CLIENT_SECRET}
+&refresh_token={GOOGLE_REFRESH_TOKEN}
+```
+
+응답 예시:
+```json
+{
+  "access_token": "ya29.a0AfH6SM...",
+  "expires_in": 3599,
+  "token_type": "Bearer"
+}
+```
+
+### Step 2: API 호출 시 헤더 사용
+
+발급받은 `access_token`을 모든 API 요청의 Authorization 헤더에 포함한다:
+
+```
+Authorization: Bearer {access_token}
+```
+
+### 에러 처리
+
+- `401 Unauthorized`: Access Token 만료 → Step 1부터 재시도
+- `403 Forbidden`: 스코프 부족 → 사용자에게 Refresh Token 재발급 필요 안내 (`https://www.googleapis.com/auth/drive`, `https://www.googleapis.com/auth/documents` 스코프 포함 필요)
 
 ## 사용 가능한 작업
 

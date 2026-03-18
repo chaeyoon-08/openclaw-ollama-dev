@@ -2,9 +2,9 @@
 .env
 
 # Claude Code
-.claude/
-CLAUDE.md
-spec/
+# .claude/
+# CLAUDE.md
+# spec/
 
 # OS
 .DS_Store
