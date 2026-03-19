@@ -1,185 +1,207 @@
 #!/bin/bash
 # =============================================================
 # openclaw-ollama-dev / setup-agent.sh
-# 오케스트레이터 + 전문가 에이전트 3개 등록 스크립트
+# 에이전트 워크스페이스 구성 및 Google 연동 확인 스크립트
 #
-# 실행 전 setup.sh 를 먼저 완료해야 합니다.
+# 사전 조건: setup.sh 완료
 #
-# 등록되는 에이전트:
-#   orchestrator  — 요청 분석 + 전문가 에이전트 위임 총괄
-#   mail          — Gmail 전담
-#   calendar      — Google Calendar 전담
-#   drive         — Google Drive/Docs 전담
+# 참고 문서:
+#   OpenClaw  : https://docs.openclaw.ai
+#   gogcli    : https://github.com/steipete/gogcli
+#   Google OAuth: https://developers.google.com/identity/protocols/oauth2
 # =============================================================
 
 set -eo pipefail
 
+# ── 로그 함수 ──────────────────────────────────────────────
+BOLD_BLUE='\033[1;34m'
+CYAN='\033[0;36m'
 GREEN='\033[0;32m'
+BOLD_GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-CYAN='\033[0;36m'
+BOLD_RED='\033[1;31m'
 NC='\033[0m'
 
-info()    { echo -e "${GREEN}[INFO]${NC}  $1"; }
-warn()    { echo -e "${YELLOW}[WARN]${NC}  $1"; }
-error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
-section() { echo -e "\n${CYAN}▶ $1${NC}"; }
+log_start()  { echo -e "${BOLD_BLUE}[ START ]${NC} $1"; }
+log_doing()  { echo -e "${CYAN}[ DOING ]${NC} $1"; }
+log_ok()     { echo -e "${GREEN}[  OK   ]${NC} $1"; }
+log_warn()   { echo -e "${YELLOW}[ WARN  ]${NC} $1"; }
+log_error()  { echo -e "${RED}[ ERROR ]${NC} $1"; }
+log_stop()   { echo -e "${BOLD_RED}[ STOP  ]${NC} $1"; exit 1; }
+log_done()   { echo -e "${BOLD_GREEN}[ DONE  ]${NC} $1"; }
+log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPENCLAW_DIR="$HOME/.openclaw"
 
-echo ""
-echo "=================================================="
-echo "  AI 업무 비서팀 에이전트 등록 스크립트"
-echo "=================================================="
-echo ""
+log_start "에이전트 워크스페이스 설정 시작"
 
-# ── 1. .env 로드 ──────────────────────────────────────────
-section ".env 로드"
+# ── 1. ~/.openclaw/.env 로드 ──────────────────────────────
+log_doing "~/.openclaw/.env 로드"
 
-[ -f "$OPENCLAW_DIR/.env" ] \
-  || error ".env 파일이 없습니다. 먼저 setup.sh 를 실행해 주세요."
+if [ ! -f "$OPENCLAW_DIR/.env" ]; then
+  log_stop "~/.openclaw/.env 없음. 먼저 setup.sh 를 실행해 주세요."
+fi
 
-set -a; source "$OPENCLAW_DIR/.env"; set +a
+set -a
+# shellcheck source=/dev/null
+source "$OPENCLAW_DIR/.env"
+set +a
 
 if [ -z "$OLLAMA_MODEL" ]; then
-  error "OLLAMA_MODEL이 설정되지 않았습니다. setup.sh를 먼저 실행해 주세요."
+  log_stop "OLLAMA_MODEL 미설정. setup.sh 를 먼저 실행해 주세요."
 fi
 if [ -z "$OLLAMA_SUBAGENT_MODEL" ]; then
-  error "OLLAMA_SUBAGENT_MODEL이 설정되지 않았습니다. setup.sh를 먼저 실행해 주세요."
+  log_stop "OLLAMA_SUBAGENT_MODEL 미설정. setup.sh 를 먼저 실행해 주세요."
 fi
-info "오케스트레이터 모델: $OLLAMA_MODEL  /  서브에이전트 모델: $OLLAMA_SUBAGENT_MODEL"
 
-# ── 2. 워크스페이스 준비 ──────────────────────────────────
-section "에이전트 워크스페이스 준비"
+log_ok "오케스트레이터: $OLLAMA_MODEL"
+log_ok "서브에이전트:   $OLLAMA_SUBAGENT_MODEL"
 
-# 에이전트 이름 → 연결할 스킬 디렉터리 매핑
-agent_skill() {
-  case "$1" in
-    orchestrator) echo "" ;;        # 오케스트레이터는 스킬 없음 (하위 에이전트에 위임)
-    mail)         echo "gmail" ;;
-    calendar)     echo "calendar" ;;
-    drive)        echo "drive" ;;
-  esac
-}
+# ── 2. 워크스페이스 파일 복사 ─────────────────────────────
+log_doing "워크스페이스 파일 복사"
 
 for AGENT in orchestrator mail calendar drive; do
-  WS_DIR="$OPENCLAW_DIR/workspace-${AGENT}"
-  mkdir -p "$WS_DIR/skills"
+  SRC="$SCRIPT_DIR/config/workspace-${AGENT}"
+  DEST="$OPENCLAW_DIR/workspace-${AGENT}"
 
-  # AGENTS.md 복사
-  SRC="$SCRIPT_DIR/agents/${AGENT}/AGENTS.md"
-  if [ -f "$SRC" ]; then
-    cp "$SRC" "$WS_DIR/AGENTS.md"
-    info "  ${AGENT}: AGENTS.md 복사 완료"
+  if [ -d "$SRC" ]; then
+    mkdir -p "$DEST"
+    cp -r "$SRC/." "$DEST/"
+    log_ok "  ${AGENT}: 복사 완료 → $DEST"
   else
-    warn "  ${AGENT}: agents/${AGENT}/AGENTS.md 없음 — OpenClaw 기본값 사용"
+    log_warn "  ${AGENT}: config/workspace-${AGENT}/ 없음 — 건너뜁니다."
   fi
-
-  # 스킬 디렉터리 복사 (오케스트레이터 제외)
-  SKILL_NAME=$(agent_skill "$AGENT")
-  if [ -n "$SKILL_NAME" ]; then
-    SRC_SKILL="$SCRIPT_DIR/skills/${SKILL_NAME}"
-    if [ -d "$SRC_SKILL" ]; then
-      cp -r "$SRC_SKILL" "$WS_DIR/skills/"
-      info "  ${AGENT}: skills/${SKILL_NAME} 복사 완료"
-    else
-      warn "  ${AGENT}: skills/${SKILL_NAME} 디렉터리 없음"
-    fi
-  fi
-
 done
 
-info "워크스페이스 준비 완료"
+# ── 3. USER.md {{GOOGLE_ACCOUNT}} 치환 ───────────────────
+log_doing "USER.md Google 계정 주입"
 
-# ── 3. 게이트웨이 시작 ────────────────────────────────────
-section "OpenClaw 게이트웨이 시작"
-
-if ! openclaw gateway status &>/dev/null; then
-  info "게이트웨이 시작 중..."
-  openclaw gateway > /tmp/openclaw-gateway.log 2>&1 &
-  sleep 10
-  info "게이트웨이 시작 완료"
+USER_MD="$OPENCLAW_DIR/workspace-orchestrator/USER.md"
+if [ -f "$USER_MD" ]; then
+  sed -i "s/{{GOOGLE_ACCOUNT}}/${GOOGLE_ACCOUNT:-}/g" "$USER_MD"
+  if [ -n "$GOOGLE_ACCOUNT" ]; then
+    log_ok "USER.md 치환 완료: $GOOGLE_ACCOUNT"
+  else
+    log_warn "GOOGLE_ACCOUNT 미설정 — USER.md의 계정 정보가 비어 있습니다."
+  fi
 else
-  info "게이트웨이 이미 실행 중"
+  log_warn "USER.md 없음: $USER_MD"
 fi
 
-# ── 4. 오케스트레이터 → Telegram 바인딩 ──────────────────
-# 에이전트 등록은 openclaw.json agents.list 에서 정의 (setup.sh 참조)
-# CLI agents add는 이미 정의된 id와 충돌하므로 사용하지 않음
-# 사용자 메시지는 모두 orchestrator 에이전트가 수신
-# orchestrator 가 내부적으로 mail/calendar/drive 에 위임
-section "Telegram 바인딩"
+# ── 4. Access Token 발급 ──────────────────────────────────
+log_doing "Google Access Token 발급"
 
-info "게이트웨이 재시작 중 (Telegram 채널 초기화)..."
-pkill -f "openclaw-gateway" 2>/dev/null || true
-sleep 3
-openclaw gateway > /tmp/openclaw-gateway.log 2>&1 &
-sleep 10
-info "게이트웨이 재시작 완료"
+RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
+  -d "grant_type=refresh_token" \
+  -d "client_id=$GOOGLE_CLIENT_ID" \
+  -d "client_secret=$GOOGLE_CLIENT_SECRET" \
+  -d "refresh_token=$GOOGLE_REFRESH_TOKEN")
 
-info "기존 바인딩 초기화 중..."
-openclaw agents unbind --agent orchestrator --all 2>/dev/null || true
+ACCESS_TOKEN=$(echo "$RESPONSE" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print(d.get('access_token',''))" 2>/dev/null || true)
 
-info "orchestrator ↔ Telegram 연결 중..."
-openclaw agents bind --agent orchestrator --bind telegram \
-  2>/dev/null \
-  || warn "바인딩 등록 실패"
-
-if openclaw agents bindings 2>/dev/null | grep -q "orchestrator"; then
-  info "바인딩 완료"
-else
-  warn "바인딩 검증 실패: orchestrator가 바인딩 목록에 없습니다"
+if [ -z "$ACCESS_TOKEN" ]; then
+  ERROR_MSG=$(echo "$RESPONSE" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('error_description', d.get('error','알 수 없는 오류')))" 2>/dev/null || echo "응답 파싱 실패")
+  log_error "Access Token 발급 실패: $ERROR_MSG"
+  log_stop "Google OAuth 설정(.env의 GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN)을 확인하세요."
 fi
 
-# ── 6. 등록 결과 확인 ─────────────────────────────────────
-section "등록 결과 확인"
+export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
+log_ok "Access Token 발급 완료"
+
+# ── 5. gog 연동 확인 ──────────────────────────────────────
+log_doing "gog Gmail 연동 확인"
+
+if ! command -v gog &>/dev/null; then
+  log_stop "gog 명령어를 찾을 수 없습니다. setup.sh 를 먼저 실행해 주세요."
+fi
+
+if gog gmail search 'is:unread' --max 1 &>/dev/null; then
+  log_ok "gog Gmail 연동 정상"
+else
+  log_stop "gog Gmail 연동 실패. .env의 GOOGLE_REFRESH_TOKEN이 유효한지, OAuth Playground에서 gmail 스코프를 포함해서 발급했는지 확인하세요."
+fi
+
+# ── 6. openclaw.json 설정 확인 ────────────────────────────
+# gateway 기동은 run.sh에서만 담당 — 이 스크립트에서 기동하지 않음
+log_doing "openclaw.json 설정 확인"
+
+OPENCLAW_JSON="$OPENCLAW_DIR/openclaw.json"
+if [ ! -f "$OPENCLAW_JSON" ]; then
+  log_warn "openclaw.json 없음. setup.sh 를 먼저 실행해 주세요."
+else
+  python3 << PYEOF
+import json, sys
+
+with open("$OPENCLAW_JSON") as f:
+    c = json.load(f)
+
+ok = True
+
+# agents.list 확인
+agent_ids = [a["id"] for a in c.get("agents", {}).get("list", [])]
+required_agents = ["orchestrator", "mail", "calendar", "drive"]
+missing = [a for a in required_agents if a not in agent_ids]
+if missing:
+    print(f"\033[1;33m[ WARN  ]\033[0m agents.list 에 없는 에이전트: {missing}")
+    print(f"\033[1;33m[ WARN  ]\033[0m   → setup.sh 를 다시 실행하세요.")
+    ok = False
+else:
+    print(f"\033[0;32m[  OK   ]\033[0m agents.list: {required_agents} 모두 확인")
+
+# orchestrator subagents.allowAgents 확인
+orch = next((a for a in c.get("agents", {}).get("list", []) if a["id"] == "orchestrator"), None)
+if orch:
+    allow = sorted(orch.get("subagents", {}).get("allowAgents", []))
+    expected = sorted(["mail", "calendar", "drive"])
+    if allow != expected:
+        print(f"\033[1;33m[ WARN  ]\033[0m orchestrator.subagents.allowAgents 불일치: {allow}")
+        print(f"\033[1;33m[ WARN  ]\033[0m   → 기대값: {expected}")
+        ok = False
+    else:
+        print(f"\033[0;32m[  OK   ]\033[0m orchestrator.subagents.allowAgents: {allow}")
+
+# bindings 확인
+bindings = c.get("bindings", [])
+has_binding = any(
+    b.get("agentId") == "orchestrator" and
+    b.get("match", {}).get("channel") == "telegram"
+    for b in bindings
+)
+if not has_binding:
+    print(f"\033[1;33m[ WARN  ]\033[0m orchestrator → telegram 바인딩 없음")
+    print(f"\033[1;33m[ WARN  ]\033[0m   → setup.sh 를 다시 실행하세요.")
+    ok = False
+else:
+    print(f"\033[0;32m[  OK   ]\033[0m bindings: orchestrator → telegram 확인")
+
+# channels.telegram.botToken 확인
+bot_token = c.get("channels", {}).get("telegram", {}).get("botToken", "")
+if not bot_token:
+    print(f"\033[1;33m[ WARN  ]\033[0m channels.telegram.botToken 없음")
+    print(f"\033[1;33m[ WARN  ]\033[0m   → setup.sh 를 다시 실행하거나 TELEGRAM_BOT_TOKEN 확인")
+    ok = False
+else:
+    masked = bot_token[:6] + "****"
+    print(f"\033[0;32m[  OK   ]\033[0m channels.telegram.botToken: {masked}")
+
+if ok:
+    print(f"\033[1;32m[ DONE  ]\033[0m openclaw.json 설정 검증 완료")
+PYEOF
+fi
+
+# ── 7. 등록 결과 출력 ─────────────────────────────────────
+log_doing "에이전트 등록 결과 확인"
 
 echo ""
-info "등록된 에이전트:"
-openclaw agents list
-
+openclaw agents list   2>/dev/null || log_warn "openclaw agents list 실패 — gateway가 실행 중이 아닙니다."
 echo ""
-info "라우팅 바인딩:"
-openclaw agents bindings
-
-echo ""
-info "게이트웨이 상태:"
-openclaw status
+openclaw agents bindings 2>/dev/null || log_warn "openclaw agents bindings 실패 — gateway가 실행 중이 아닙니다."
 
 # ── 완료 ──────────────────────────────────────────────────
 echo ""
-echo "=================================================="
-echo "  에이전트 등록 완료!"
-echo ""
-echo "  Telegram 봇에 메시지를 보내보세요."
-echo "  오케스트레이터가 요청을 분석해서 자동으로 처리합니다."
-echo ""
-echo "  복합 요청 예시:"
-echo "    '김팀장 메일 확인하고 다음 주 미팅 잡아줘'"
-echo "    → 메일 에이전트로 메일 조회"
-echo "    → 일정 에이전트로 미팅 등록"
-echo ""
-echo "  에이전트 지침 커스터마이징:"
-echo "    agents/orchestrator/AGENTS.md  ← 위임 로직"
-echo "    agents/mail/AGENTS.md          ← 메일 에이전트 지침"
-echo "    agents/calendar/AGENTS.md      ← 일정 에이전트 지침"
-echo "    agents/drive/AGENTS.md         ← 문서 에이전트 지침"
-echo ""
-echo "  지침 수정 후: openclaw gateway restart"
-echo ""
-echo "  ── 런타임 모니터링 ──────────────────────────────"
-echo "  openclaw tui                    터미널 대시보드 (전체 현황)"
-echo "  openclaw gateway logs --follow  실시간 처리 로그"
-echo "  tail -f /tmp/openclaw-gateway.log  게이트웨이 로그"
-echo "  openclaw status                 게이트웨이·채널 상태 요약"
-echo "  openclaw agents list            등록 에이전트 확인"
-echo "  openclaw agents bindings        봇↔에이전트 연결 확인"
-echo ""
-echo "  처리 중 로그 예시 (gateway logs --follow):"
-echo "    [orchestrator] 요청 분석 → mail 에이전트 위임"
-echo "    [mail] Gmail API 호출 중..."
-echo "    [mail] 응답 수신 → orchestrator 반환"
-echo "    [orchestrator] Telegram 전송 완료"
-echo "=================================================="
-echo ""
+log_done "에이전트 설정 완료"
+log_next "다음 단계: bash run.sh"

@@ -1,202 +1,164 @@
-# SPEC.md — openclaw-ollama-dev 기술 명세
+# SPEC — openclaw-ollama-dev
 
-## 에이전트 스펙
+## 참고 공식 문서
 
-### orchestrator
-
-| 항목 | 값 |
-|---|---|
-| 모델 | `$OLLAMA_MODEL` (기본: `qwen3:32b-q4_K_M`) |
-| Fallback 모델 | `$OLLAMA_FALLBACK_MODEL` (기본: `glm-4.7-flash`) |
-| 워크스페이스 | `~/.openclaw/workspace-orchestrator/` |
-| 허용 서브에이전트 | `mail`, `calendar`, `drive` |
-| Telegram 바인딩 | `dmPolicy: open`, `allowFrom: ["*"]` |
-| 지침 파일 | `agents/orchestrator/AGENTS.md` |
-| 페르소나 파일 | `agents/orchestrator/IDENTITY.md` |
-
-### mail / calendar / drive
-
-| 항목 | 값 |
-|---|---|
-| 모델 | `$OLLAMA_SUBAGENT_MODEL` (기본: `qwen3:8b`) |
-| Fallback 모델 | `$OLLAMA_FALLBACK_MODEL` |
-| 서브에이전트 타임아웃 | 120초 (`runTimeoutSeconds`) |
-| 연결 Google 계정 | `cy.lim.da@gmail.com` |
+- openclaw: https://docs.openclaw.ai
+- gogcli: https://github.com/steipete/gogcli
 
 ---
 
-## MCP 서브에이전트 위임 패턴
+## 기술 스택
 
-orchestrator는 `sessions_spawn` 도구로 전문 에이전트에게 위임한다.
-
-```
-sessions_spawn(
-  targetAgent: "mail" | "calendar" | "drive",
-  message: "구체적인 작업 지시 (한국어)",
-  runTimeoutSeconds: 60
-)
-```
-
-### 단순 요청 (에이전트 1개)
-
-```
-사용자: "오늘 메일 요약해줘"
-  └─ orchestrator
-       └─ sessions_spawn(targetAgent: "mail", message: "오늘 받은 메일 목록 요약해줘")
-            └─ mail → Gmail API 호출 → 결과 반환
-       └─ orchestrator → Telegram 응답
-```
-
-### 복합 요청 (순차 위임)
-
-```
-사용자: "김팀장 메일 보고 다음 주 미팅 잡아줘"
-  └─ orchestrator
-       ├─ 1단계: sessions_spawn(targetAgent: "mail", message: "김팀장 최근 메일 내용 가져와줘")
-       │         └─ mail 결과 수신
-       └─ 2단계: sessions_spawn(targetAgent: "calendar",
-                   message: "김팀장 메일 내용: [1단계 결과]. 다음 주 미팅 등록해줘")
-                  └─ calendar 결과 수신
-       └─ orchestrator → Telegram 응답 (종합)
-```
+| 컴포넌트 | 역할 |
+|---|---|
+| OpenClaw | 멀티 에이전트 오케스트레이션 프레임워크 (npm 글로벌 패키지) |
+| Ollama | 로컬 LLM 서버 (http://127.0.0.1:11434) |
+| gogcli | Google API CLI 클라이언트 (GOG_ACCESS_TOKEN 방식) |
+| Node.js | proxy.js 실행 환경 (내장 모듈만 사용) |
+| Telegram Bot API | 사용자 인터페이스 채널 |
 
 ---
 
-## Google OAuth2 인증 플로우
-
-### 전제 조건
-
-Refresh Token은 Google Cloud Console에서 OAuth2 클라이언트를 생성하고 아래 스코프를 포함해서 발급해야 한다.
-
-### 필요 OAuth 스코프
-
-| 스코프 | 사용 서비스 |
-|---|---|
-| `https://www.googleapis.com/auth/gmail.readonly` | Gmail 조회·검색 |
-| `https://www.googleapis.com/auth/gmail.compose` | Gmail 초안 작성 |
-| `https://www.googleapis.com/auth/gmail.send` | Gmail 발송 |
-| `https://www.googleapis.com/auth/calendar` | Calendar 전체 읽기·쓰기 |
-| `https://www.googleapis.com/auth/drive` | Drive 전체 |
-| `https://www.googleapis.com/auth/documents` | Docs 읽기·쓰기 |
-
-### 인증 플로우 (에이전트가 API 호출 시 수행)
-
-**1단계: Access Token 발급**
+## 포트 구조
 
 ```
-POST https://oauth2.googleapis.com/token
-Content-Type: application/x-www-form-urlencoded
-
-client_id=<GOOGLE_CLIENT_ID>
-&client_secret=<GOOGLE_CLIENT_SECRET>
-&refresh_token=<GOOGLE_REFRESH_TOKEN>
-&grant_type=refresh_token
+gcube 외부 HTTPS
+    ↓ (443 → 8080 포워딩)
+proxy.js (0.0.0.0:8080)
+    ↓ HTTP 프록시 + WebSocket 터널
+openclaw gateway (127.0.0.1:18789)
+    ↓
+에이전트 처리
 ```
 
-응답:
+- proxy.js는 node 내장 `http` + `net` 모듈만 사용 (npm install 불필요)
+- HTTP 요청과 WebSocket Upgrade 요청 모두 처리
+- openclaw gateway는 loopback(127.0.0.1)에만 바인딩
+
+---
+
+## openclaw.json gateway 설정
+
 ```json
-{
-  "access_token": "ya29.xxxx",
-  "expires_in": 3599,
-  "token_type": "Bearer"
-}
-```
-
-**2단계: API 호출**
-
-```
-GET https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread
-Authorization: Bearer ya29.xxxx
-```
-
-Access Token은 약 1시간 유효. 에이전트는 API 호출 직전 매번 1단계를 수행해야 한다.
-
----
-
-## openclaw.json 구조
-
-`setup.sh`가 `~/.openclaw/openclaw.json`에 생성하는 파일의 구조:
-
-```jsonc
-{
-  "models": {
-    "mode": "merge",
-    "providers": {
-      "ollama": {
-        "baseUrl": "http://127.0.0.1:11434",
-        "apiKey": "ollama-local",
-        "api": "ollama",
-        "models": [
-          // orchestrator 모델, 서브에이전트 모델, fallback 모델 3개 등록
-        ]
-      }
-    }
-  },
-  "agents": {
-    "defaults": {
-      "compaction": { "mode": "safeguard" },
-      "subagents": { "runTimeoutSeconds": 120 }
-    },
-    "list": [
-      {
-        "id": "orchestrator",
-        "workspace": "~/.openclaw/workspace-orchestrator",
-        "model": { "primary": "ollama/<MODEL>", "fallbacks": ["ollama/<FALLBACK>"] },
-        "subagents": { "allowAgents": ["mail", "calendar", "drive"] }
-      },
-      // mail, calendar, drive — 동일 구조, allowAgents 없음
-    ]
-  },
-  "channels": {
-    "telegram": {
-      "botToken": "<TELEGRAM_BOT_TOKEN>",
-      "dmPolicy": "open",
-      "allowFrom": ["*"]
-    }
-  },
-  "env": {
-    // 모든 에이전트에 주입될 환경변수
-    "GOOGLE_CLIENT_ID": "<값>",
-    "GOOGLE_CLIENT_SECRET": "<값>",
-    "GOOGLE_REFRESH_TOKEN": "<값>"
-  },
-  "gateway": {
-    "mode": "local",
-    "auth": { "mode": "token", "token": "<openssl rand -hex 24>" }
+"gateway": {
+  "port": 18789,
+  "mode": "local",
+  "bind": "loopback",
+  "trustedProxies": ["127.0.0.1"],
+  "controlUi": {
+    "dangerouslyAllowHostHeaderOriginFallback": true
   }
 }
 ```
 
----
-
-## Telegram 봇 동작 스펙
-
-| 항목 | 값 |
-|---|---|
-| 채널 어댑터 | OpenClaw 내장 Telegram 어댑터 |
-| 토큰 저장 위치 | `~/.openclaw/openclaw.json` channels.telegram.botToken |
-| DM 정책 | `open` (모든 사용자 허용) |
-| allowFrom | `["*"]` |
-| 바인딩 에이전트 | `orchestrator` |
-| polling/webhook | OpenClaw 내부 처리 (방식 설정 불가) |
+`dangerouslyAllowHostHeaderOriginFallback`: gcube URL이 배포마다 바뀌어 allowedOrigins 고정 불가.
+개인 사용 환경이므로 허용. (→ spec/HANDOVER.md 참조)
 
 ---
 
-## 스킬 파일 포맷
+## 멀티 에이전트 구조
 
-`skills/*/SKILL.md`는 YAML frontmatter + Markdown 본문으로 구성된다.
-
-```yaml
----
-name: gmail
-description: Gmail 읽기·검색·답장 초안 작성 (Google OAuth 필요)
-metadata:
-  openclaw:
-    requires:
-      env: [GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN]
-    emoji: "📬"
----
+```
+orchestrator (qwen3:32b)
+  ├─ mail      (qwen3:8b) → Gmail
+  ├─ calendar  (qwen3:8b) → Google Calendar
+  └─ drive     (qwen3:8b) → Google Drive/Docs/Sheets/Slides
 ```
 
-본문에는 REST 엔드포인트, 요청 형식, 파라미터, 주의사항을 기술한다.
-에이전트(LLM)가 이 파일을 읽고 HTTP 요청을 직접 구성한다.
+- orchestrator가 Telegram 메시지 수신 → 분석 → 서브에이전트 위임
+- 서브에이전트는 `sessions_spawn` 도구로 호출됨
+- 서브에이전트끼리는 직접 통신하지 않음
+
+---
+
+## Google 인증 방식
+
+gogcli v0.12.0+ 공식 지원 방식: `GOG_ACCESS_TOKEN` 환경변수.
+
+```bash
+# Access Token 발급
+ACCESS_TOKEN=$(curl -s -X POST https://oauth2.googleapis.com/token \
+  -d "grant_type=refresh_token" \
+  -d "client_id=$GOOGLE_CLIENT_ID" \
+  -d "client_secret=$GOOGLE_CLIENT_SECRET" \
+  -d "refresh_token=$GOOGLE_REFRESH_TOKEN" | \
+  python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
+```
+
+- run.sh 기동 시 1회 발급, 이후 55분마다 백그라운드 루프에서 자동 갱신
+- 갱신 실패 시 최대 3회 재시도
+
+---
+
+## 워크스페이스 구조
+
+### orchestrator
+
+```
+~/.openclaw/workspace-orchestrator/
+  ├── AGENTS.md      ← 역할, 위임 로직, 보안 규칙
+  ├── SOUL.md        ← 페르소나 (클로)
+  ├── TOOLS.md       ← 사용 가능한 도구 목록
+  ├── IDENTITY.md    ← 자기소개 텍스트
+  ├── USER.md        ← 사용자 정보 (setup-agent.sh가 주입)
+  ├── HEARTBEAT.md   ← 상태 점검 루틴
+  └── skills/
+      └── gog/
+          └── SKILL.md  ← gogcli 사용법
+```
+
+### mail / calendar / drive (서브에이전트)
+
+```
+~/.openclaw/workspace-{agent}/
+  ├── AGENTS.md      ← 역할, API 지침, 보안 규칙
+  ├── TOOLS.md       ← 사용 가능한 도구 목록
+  └── skills/
+      └── gog/
+          └── SKILL.md  ← gogcli 사용법
+```
+
+서브에이전트는 AGENTS.md + TOOLS.md + skills/gog/SKILL.md 만 주입됨.
+
+---
+
+## 로그 스타일
+
+ANSI 색상만 사용. 이모지 없음.
+
+```bash
+BOLD='\033[1m'
+BOLD_BLUE='\033[1;34m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+BOLD_GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD_RED='\033[1;31m'
+NC='\033[0m'
+
+log_start()  { echo -e "${BOLD_BLUE}[ START ]${NC} $1"; }
+log_doing()  { echo -e "${CYAN}[ DOING ]${NC} $1"; }
+log_ok()     { echo -e "${GREEN}[  OK   ]${NC} $1"; }
+log_warn()   { echo -e "${YELLOW}[ WARN  ]${NC} $1"; }
+log_error()  { echo -e "${RED}[ ERROR ]${NC} $1"; }
+log_stop()   { echo -e "${BOLD_RED}[ STOP  ]${NC} $1"; exit 1; }
+log_done()   { echo -e "${BOLD_GREEN}[ DONE  ]${NC} $1"; }
+log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
+```
+
+---
+
+## 환경변수
+
+| 변수 | 설명 |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | BotFather에서 발급한 봇 토큰 |
+| `GOOGLE_CLIENT_ID` | Google Cloud Console OAuth 2.0 클라이언트 ID |
+| `GOOGLE_CLIENT_SECRET` | Google Cloud Console OAuth 2.0 클라이언트 시크릿 |
+| `GOOGLE_REFRESH_TOKEN` | Google OAuth Refresh Token |
+| `GOOGLE_ACCOUNT` | Google 계정 이메일 (gogcli 연동용) |
+| `OLLAMA_MODEL` | 오케스트레이터용 모델 (예: `qwen3:32b-q4_K_M`) |
+| `OLLAMA_SUBAGENT_MODEL` | 서브에이전트용 모델 (예: `qwen3:8b`) |
+| `OLLAMA_FALLBACK_MODEL` | 대체 모델 (예: `glm-4.7-flash`) |
