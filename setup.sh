@@ -1,212 +1,165 @@
 #!/bin/bash
 # =============================================================
 # openclaw-ollama-dev / setup.sh
-# Ollama + OpenClaw 설치 및 초기 설정 스크립트
+# Ollama + gogcli + OpenClaw 설치 및 초기 설정 스크립트
 #
-# 필수 환경변수:
-#   TELEGRAM_BOT_TOKEN    — Telegram 봇 토큰 (BotFather에서 발급)
-#   GOOGLE_CLIENT_ID      — Google Cloud Console OAuth 클라이언트 ID
-#   GOOGLE_CLIENT_SECRET  — Google Cloud Console OAuth 클라이언트 시크릿
-#   GOOGLE_REFRESH_TOKEN  — Google OAuth Refresh Token
-#
-#   OLLAMA_MODEL          — 오케스트레이터용 모델 (예: qwen3:32b-q4_K_M)
-#   OLLAMA_SUBAGENT_MODEL — 서브에이전트용 모델 (예: qwen3:8b)
-#   OLLAMA_FALLBACK_MODEL — 기본 모델 실패 시 대체 모델 (예: glm-4.7-flash)
+# 참고 문서:
+#   OpenClaw  : https://docs.openclaw.ai
+#   gogcli    : https://github.com/steipete/gogcli
+#   Ollama    : https://ollama.ai
+#   NodeSource: https://github.com/nodesource/distributions
+#   Go        : https://go.dev/dl
 # =============================================================
 
 set -eo pipefail
 
+# ── 로그 함수 ──────────────────────────────────────────────
+BOLD_BLUE='\033[1;34m'
+CYAN='\033[0;36m'
 GREEN='\033[0;32m'
+BOLD_GREEN='\033[1;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-CYAN='\033[0;36m'
+BOLD_RED='\033[1;31m'
 NC='\033[0m'
 
-info()    { echo -e "${GREEN}[INFO]${NC}  $1"; }
-warn()    { echo -e "${YELLOW}[WARN]${NC}  $1"; }
-error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
-section() { echo -e "\n${CYAN}▶ $1${NC}"; }
-
-echo ""
-echo "=================================================="
-echo "  OpenClaw Ollama 버전 설치 스크립트"
-echo "  (오케스트레이션 멀티 에이전트 구조)"
-echo "=================================================="
-echo ""
-
-# ── 1. 환경변수 확인 ──────────────────────────────────────
-section "환경변수 확인"
+log_start()  { echo -e "${BOLD_BLUE}[ START ]${NC} $1"; }
+log_doing()  { echo -e "${CYAN}[ DOING ]${NC} $1"; }
+log_ok()     { echo -e "${GREEN}[  OK   ]${NC} $1"; }
+log_warn()   { echo -e "${YELLOW}[ WARN  ]${NC} $1"; }
+log_error()  { echo -e "${RED}[ ERROR ]${NC} $1"; }
+log_stop()   { echo -e "${BOLD_RED}[ STOP  ]${NC} $1"; exit 1; }
+log_done()   { echo -e "${BOLD_GREEN}[ DONE  ]${NC} $1"; }
+log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/.env"
+OPENCLAW_DIR="$HOME/.openclaw"
 
-if [ -f "$ENV_FILE" ]; then
+log_start "OpenClaw Ollama 설치 시작"
+
+# ── 1. .env 검증 ──────────────────────────────────────────
+log_doing "환경변수 확인"
+
+if [ -f "$SCRIPT_DIR/.env" ]; then
   set -a
   # shellcheck source=/dev/null
-  source "$ENV_FILE"
+  source "$SCRIPT_DIR/.env"
   set +a
-  info ".env 파일 로드 완료"
-else
-  info ".env 파일 없음 — 환경변수에서 값을 사용합니다."
+  log_ok ".env 로드 완료"
 fi
 
-status_var() {
-  local var="$1" mode="$2"
-  local val="${!var}"
-  if [ -z "$val" ]; then
-    info "${var}: 미설정"
-    return
-  fi
-  case "$mode" in
-    full)    info "${var}: ${val}" ;;
-    partial) info "${var}: ${val:0:4}$(printf '%*s' "$(( ${#val} > 4 ? ${#val} - 4 : 0 ))" '' | tr ' ' '*')" ;;
-  esac
-}
-status_var TELEGRAM_BOT_TOKEN    partial
-status_var GOOGLE_CLIENT_ID      partial
-status_var GOOGLE_CLIENT_SECRET  partial
-status_var GOOGLE_REFRESH_TOKEN  partial
-status_var OLLAMA_MODEL          full
-status_var OLLAMA_SUBAGENT_MODEL full
-status_var OLLAMA_FALLBACK_MODEL full
+MISSING=()
+for VAR in TELEGRAM_BOT_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
+           GOOGLE_REFRESH_TOKEN OLLAMA_MODEL OLLAMA_SUBAGENT_MODEL OLLAMA_FALLBACK_MODEL; do
+  [ -z "${!VAR}" ] && MISSING+=("$VAR")
+done
 
-MISSING_MODEL=false
-if [ -z "$OLLAMA_MODEL" ]; then
-  info "OLLAMA_MODEL이 설정되지 않았습니다. 워크로드의 환경변수를 추가하거나, .env.example을 참고해서 .env 파일을 작성해주세요."
-  MISSING_MODEL=true
+if [ ${#MISSING[@]} -gt 0 ]; then
+  log_error "미설정 환경변수:"
+  for V in "${MISSING[@]}"; do
+    echo "        - $V"
+  done
+  log_stop ".env 파일을 확인하고 모든 필수 변수를 설정하세요."
 fi
-if [ -z "$OLLAMA_SUBAGENT_MODEL" ]; then
-  info "OLLAMA_SUBAGENT_MODEL이 설정되지 않았습니다. 워크로드의 환경변수를 추가하거나, .env.example을 참고해서 .env 파일을 작성해주세요."
-  MISSING_MODEL=true
-fi
-if [ -z "$OLLAMA_FALLBACK_MODEL" ]; then
-  info "OLLAMA_FALLBACK_MODEL이 설정되지 않았습니다. 워크로드의 환경변수를 추가하거나, .env.example을 참고해서 .env 파일을 작성해주세요."
-  MISSING_MODEL=true
-fi
-[ "$MISSING_MODEL" = true ] && exit 1
-OLLAMA_ORIGINAL_MODEL="$OLLAMA_MODEL"
 
-info "환경변수 확인 완료"
-info "오케스트레이터 모델: $OLLAMA_MODEL  /  서브에이전트 모델: $OLLAMA_SUBAGENT_MODEL  /  fallback: $OLLAMA_FALLBACK_MODEL"
+log_ok "환경변수 확인 완료"
+log_ok "  오케스트레이터: $OLLAMA_MODEL"
+log_ok "  서브에이전트:   $OLLAMA_SUBAGENT_MODEL"
+log_ok "  Fallback:      $OLLAMA_FALLBACK_MODEL"
 
 # ── 2. Node.js 확인 ───────────────────────────────────────
-section "Node.js 확인"
+log_doing "Node.js 확인"
 
-if ! command -v node &>/dev/null; then
-  error "Node.js 18 이상이 필요합니다. https://nodejs.org 에서 설치해 주세요."
+NODE_OK=false
+if command -v node &>/dev/null; then
+  NODE_MAJOR=$(node -e "process.stdout.write(process.version.slice(1).split('.')[0])")
+  if [ "$NODE_MAJOR" -ge 22 ]; then
+    NODE_OK=true
+    log_ok "Node.js $(node --version) 확인됨"
+  else
+    log_warn "Node.js $(node --version) — 22 미만, 재설치합니다."
+  fi
+else
+  log_warn "Node.js 미설치"
 fi
 
-NODE_MAJOR=$(node -e "process.stdout.write(process.version.slice(1).split('.')[0])")
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  error "Node.js 18 이상이 필요합니다. 현재 버전: $(node --version)"
+if [ "$NODE_OK" = false ]; then
+  log_doing "Node.js 22 설치 중..."
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  apt-get install -y nodejs
+  log_ok "Node.js $(node --version) 설치 완료"
 fi
-info "Node.js $(node --version) 확인됨"
 
 # ── 3. Ollama 설치 ────────────────────────────────────────
-section "Ollama 설치"
+log_doing "Ollama 확인"
 
 if ! command -v ollama &>/dev/null; then
-  info "Ollama 설치 중..."
+  log_doing "Ollama 설치 중..."
   curl -fsSL https://ollama.ai/install.sh | sh
-  info "Ollama 설치 완료"
+  log_ok "Ollama 설치 완료"
 else
-  OLLAMA_VERSION=$(ollama --version 2>/dev/null | grep -o 'version is [0-9.]*' | awk '{print $3}')
-  info "Ollama 이미 설치됨 (서비스 실행 전) — client version: ${OLLAMA_VERSION:-unknown}"
+  log_ok "Ollama 이미 설치됨: $(ollama --version 2>/dev/null | head -1)"
 fi
 
-# ── 5. Ollama 서비스 시작 ─────────────────────────────────
-section "Ollama 서비스 시작"
+# ── 4. gogcli 설치 ────────────────────────────────────────
+log_doing "gogcli 확인"
 
-if ! pgrep -x "ollama" > /dev/null; then
-  ollama serve &>/dev/null &
-  sleep 3
-  info "Ollama 서비스 시작됨"
-else
-  info "Ollama 서비스 이미 실행 중"
-fi
+if ! command -v gog &>/dev/null; then
+  # go.mod에서 요구 Go 버전 동적으로 읽기
+  log_doing "gogcli 요구 Go 버전 확인 중..."
+  GO_REQUIRED=$(curl -s https://raw.githubusercontent.com/steipete/gogcli/main/go.mod \
+    | grep '^go ' | awk '{print $2}')
 
-# ── 6. 모델 Pull ──────────────────────────────────────────
-section "LLM 모델 다운로드"
+  [ -z "$GO_REQUIRED" ] && log_stop "gogcli go.mod에서 Go 버전을 읽지 못했습니다."
+  log_ok "gogcli 요구 Go 버전: $GO_REQUIRED"
 
-info "다운로드 시작: $OLLAMA_MODEL"
-info "(모델 크기에 따라 10~30분 소요될 수 있습니다)"
+  # 공식 Go 바이너리 설치
+  log_doing "Go $GO_REQUIRED 설치 중..."
+  GO_TAR="go${GO_REQUIRED}.linux-amd64.tar.gz"
+  curl -fOL "https://go.dev/dl/${GO_TAR}" \
+    || log_stop "Go $GO_REQUIRED 다운로드 실패"
+  rm -rf /usr/local/go
+  tar -C /usr/local -xzf "$GO_TAR"
+  rm -f "$GO_TAR"
+  export PATH=$PATH:/usr/local/go/bin
+  log_ok "Go $(go version) 설치 완료"
 
-FALLBACK_USED=false
-if ollama pull "$OLLAMA_MODEL"; then
-  info "$OLLAMA_MODEL 다운로드 완료"
-else
-  warn "$OLLAMA_MODEL 다운로드 실패 — fallback 모델로 대체합니다."
-  OLLAMA_MODEL="$OLLAMA_FALLBACK_MODEL"
-  FALLBACK_USED=true
-fi
+  # 빌드 의존성 및 gogcli 빌드
+  log_doing "빌드 의존성 설치 중..."
+  apt-get install -y make build-essential -qq
 
-info "서브에이전트 모델 다운로드 중: $OLLAMA_SUBAGENT_MODEL"
-if ollama pull "$OLLAMA_SUBAGENT_MODEL"; then
-  info "$OLLAMA_SUBAGENT_MODEL 다운로드 완료"
-else
-  warn "$OLLAMA_SUBAGENT_MODEL 다운로드 실패 — 서브에이전트 실행 시 문제가 발생할 수 있습니다."
-fi
-
-info "Fallback 모델 다운로드 중: $OLLAMA_FALLBACK_MODEL"
-if ollama pull "$OLLAMA_FALLBACK_MODEL"; then
-  info "$OLLAMA_FALLBACK_MODEL 다운로드 완료"
-else
-  warn "$OLLAMA_FALLBACK_MODEL 다운로드 실패 — 타임아웃 시 404 에러가 발생할 수 있습니다."
-fi
-
-FINAL_MODEL="$OLLAMA_MODEL"
-
-# ── 7. gogcli 설치 ────────────────────────────────────────
-section "gogcli 설치"
-if ! command -v gog &> /dev/null; then
+  log_doing "gogcli 빌드 중..."
   cd /tmp
+  rm -rf gogcli
   git clone https://github.com/steipete/gogcli.git
   cd gogcli
-  apt-get install -y make build-essential golang-go -qq
-  make
+  make || log_stop "gogcli make 실패"
   cp bin/gog /usr/local/bin/gog
   chmod +x /usr/local/bin/gog
-  cd ~
-  info "gogcli 설치 완료: $(gog --version)"
+  cd "$SCRIPT_DIR"
+  log_ok "gogcli 설치 완료: $(gog --version)"
 else
-  info "gogcli 이미 설치됨: $(gog --version)"
+  log_ok "gogcli 이미 설치됨: $(gog --version)"
 fi
 
-# ── 8. OpenClaw 설치 ──────────────────────────────────────
-section "OpenClaw 설치"
+# ── 5. OpenClaw 설치 ──────────────────────────────────────
+log_doing "OpenClaw 확인"
 
 if ! command -v openclaw &>/dev/null; then
-  npm install -g openclaw
-  info "OpenClaw 설치 완료"
+  log_doing "OpenClaw 설치 중..."
+  npm install -g openclaw || log_stop "OpenClaw 설치 실패"
+  log_ok "OpenClaw 설치 완료: $(openclaw --version)"
 else
-  info "OpenClaw 이미 설치됨: $(openclaw --version)"
+  log_ok "OpenClaw 이미 설치됨: $(openclaw --version)"
 fi
 
-# ── 9. OpenClaw 디렉터리 초기화 ───────────────────────────
-section "OpenClaw 초기 설정"
+# ── 6. openclaw.json 생성 ─────────────────────────────────
+# ref: https://docs.openclaw.ai
+log_doing "openclaw.json 생성 중..."
 
-OPENCLAW_DIR="$HOME/.openclaw"
 mkdir -p "$OPENCLAW_DIR"
+GW_TOKEN=$(openssl rand -hex 24)
 
-# .env 생성 (Google OAuth + 봇 토큰 + 최종 모델명)
-# printf '%s' 사용 — 값에 $, `, \ 등 특수문자가 있어도 안전하게 기록
-{
-  printf 'GOOGLE_CLIENT_ID=%s\n'       "${GOOGLE_CLIENT_ID}"
-  printf 'GOOGLE_CLIENT_SECRET=%s\n'   "${GOOGLE_CLIENT_SECRET}"
-  printf 'GOOGLE_REFRESH_TOKEN=%s\n'   "${GOOGLE_REFRESH_TOKEN}"
-  printf 'TELEGRAM_BOT_TOKEN=%s\n'     "${TELEGRAM_BOT_TOKEN}"
-  printf 'OLLAMA_API_KEY=%s\n'         "ollama-local"
-  printf 'OLLAMA_MODEL=%s\n'           "${OLLAMA_MODEL}"
-  printf 'OLLAMA_SUBAGENT_MODEL=%s\n'  "${OLLAMA_SUBAGENT_MODEL}"
-  printf 'OLLAMA_FALLBACK_MODEL=%s\n'  "${OLLAMA_FALLBACK_MODEL}"
-  printf 'NODE_OPTIONS=%s\n'          "--dns-result-order=ipv4first"
-} > "$OPENCLAW_DIR/.env"
-chmod 600 "$OPENCLAW_DIR/.env"
-info ".env 파일 생성 완료: $OPENCLAW_DIR/.env"
-
-# openclaw.json 생성
-# - agents.list 와 bindings 는 setup-agent.sh 에서 CLI로 등록 (중복 방지)
-# - 채널 설정(botToken)은 여기서 정의, channels add 는 실행하지 않음
 cat > "$OPENCLAW_DIR/openclaw.json" << EOF
 {
   "models": {
@@ -218,8 +171,8 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
         "api": "ollama",
         "models": [
           {
-            "id": "ollama/${FINAL_MODEL}",
-            "name": "${FINAL_MODEL}",
+            "id": "ollama/${OLLAMA_MODEL}",
+            "name": "${OLLAMA_MODEL}",
             "reasoning": false,
             "input": ["text"],
             "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
@@ -256,7 +209,7 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
         "id": "orchestrator",
         "workspace": "${OPENCLAW_DIR}/workspace-orchestrator",
         "model": {
-          "primary": "ollama/${FINAL_MODEL}",
+          "primary": "ollama/${OLLAMA_MODEL}",
           "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
         },
         "subagents": {
@@ -289,6 +242,9 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
       }
     ]
   },
+  "bindings": [
+    { "agentId": "orchestrator", "match": { "channel": "telegram" } }
+  ],
   "channels": {
     "telegram": {
       "botToken": "${TELEGRAM_BOT_TOKEN}",
@@ -302,34 +258,42 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
     "GOOGLE_REFRESH_TOKEN": "${GOOGLE_REFRESH_TOKEN}"
   },
   "gateway": {
-    "port": 8080,
+    "port": 18789,
     "mode": "local",
-    "bind": "lan",
+    "bind": "loopback",
+    "trustedProxies": ["127.0.0.1"],
     "controlUi": {
       "dangerouslyAllowHostHeaderOriginFallback": true
     },
     "auth": {
       "mode": "token",
-      "token": "$(openssl rand -hex 24)"
+      "token": "${GW_TOKEN}"
     }
   }
 }
 EOF
-info "openclaw.json 생성 완료: $OPENCLAW_DIR/openclaw.json"
 
-# ── 완료 요약 ─────────────────────────────────────────────
+log_ok "openclaw.json 생성 완료: $OPENCLAW_DIR/openclaw.json"
+
+# ── 7. ~/.openclaw/.env 생성 ──────────────────────────────
+log_doing "~/.openclaw/.env 생성 중..."
+
+{
+  printf 'TELEGRAM_BOT_TOKEN=%s\n'    "${TELEGRAM_BOT_TOKEN}"
+  printf 'GOOGLE_CLIENT_ID=%s\n'      "${GOOGLE_CLIENT_ID}"
+  printf 'GOOGLE_CLIENT_SECRET=%s\n'  "${GOOGLE_CLIENT_SECRET}"
+  printf 'GOOGLE_REFRESH_TOKEN=%s\n'  "${GOOGLE_REFRESH_TOKEN}"
+  printf 'GOOGLE_ACCOUNT=%s\n'        "${GOOGLE_ACCOUNT:-}"
+  printf 'OLLAMA_MODEL=%s\n'          "${OLLAMA_MODEL}"
+  printf 'OLLAMA_SUBAGENT_MODEL=%s\n' "${OLLAMA_SUBAGENT_MODEL}"
+  printf 'OLLAMA_FALLBACK_MODEL=%s\n' "${OLLAMA_FALLBACK_MODEL}"
+  printf 'OLLAMA_API_KEY=%s\n'        "ollama-local"
+} > "$OPENCLAW_DIR/.env"
+chmod 600 "$OPENCLAW_DIR/.env"
+
+log_ok "~/.openclaw/.env 생성 완료 (chmod 600)"
+
+# ── 완료 ──────────────────────────────────────────────────
 echo ""
-echo "=================================================="
-echo "  기본 설치 완료!"
-echo ""
-if [ "$FALLBACK_USED" = true ]; then
-  echo "  ✅ 최종 사용 모델 : ${OLLAMA_MODEL}"
-  echo "  ⚠️  주의: 기본 모델(${OLLAMA_ORIGINAL_MODEL}) pull 실패"
-  echo "       → fallback 모델(${OLLAMA_MODEL})로 대체됨"
-else
-  echo "  ✅ 최종 사용 모델 : ${OLLAMA_MODEL}"
-fi
-echo ""
-echo "  다음 단계: ./setup-agent.sh 실행"
-echo "=================================================="
-echo ""
+log_done "설치 완료"
+log_next "다음 단계: bash setup-agent.sh"
