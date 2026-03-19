@@ -101,7 +101,31 @@ else
   log_ok "Ollama 이미 설치됨: $(ollama --version 2>/dev/null | head -1)"
 fi
 
-# ── 4. gogcli 설치 ────────────────────────────────────────
+# ── 4. Ollama 모델 다운로드 ───────────────────────────────
+log_doing "Ollama 모델 다운로드"
+
+# ollama pull은 서버가 실행 중이어야 동작함
+ollama serve > /dev/null 2>&1 &
+OLLAMA_SERVE_PID=$!
+sleep 3
+
+# 중복 모델명 제거 후 pull
+declare -A _SEEN_MODELS
+for MODEL in "$OLLAMA_MODEL" "$OLLAMA_SUBAGENT_MODEL" "$OLLAMA_FALLBACK_MODEL"; do
+  if [ -z "${_SEEN_MODELS[$MODEL]+x}" ]; then
+    _SEEN_MODELS[$MODEL]=1
+    log_doing "모델 다운로드 중: $MODEL"
+    ollama pull "$MODEL" || log_warn "$MODEL pull 실패 — 나중에 수동으로 pull 하세요."
+    log_ok "다운로드 완료: $MODEL"
+  fi
+done
+
+# 설치용으로 띄운 서버 종료 (run.sh에서 새로 기동)
+kill "$OLLAMA_SERVE_PID" 2>/dev/null || true
+pkill -f 'ollama serve' 2>/dev/null || true
+sleep 1
+
+# ── 5. gogcli 설치 ────────────────────────────────────────
 log_doing "gogcli 확인"
 
 if ! command -v gog &>/dev/null; then
@@ -142,7 +166,7 @@ else
   log_ok "gogcli 이미 설치됨: $(gog --version)"
 fi
 
-# ── 5. OpenClaw 설치 ──────────────────────────────────────
+# ── 6. OpenClaw 설치 ──────────────────────────────────────
 log_doing "OpenClaw 확인"
 
 if ! command -v openclaw &>/dev/null; then
@@ -153,7 +177,7 @@ else
   log_ok "OpenClaw 이미 설치됨: $(openclaw --version)"
 fi
 
-# ── 6. openclaw.json 생성 ─────────────────────────────────
+# ── 7. openclaw.json 생성 ─────────────────────────────────
 # ref: https://docs.openclaw.ai
 log_doing "openclaw.json 생성 중..."
 
@@ -171,21 +195,21 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
         "api": "ollama",
         "models": [
           {
-            "id": "ollama/${OLLAMA_MODEL}",
+            "id": "${OLLAMA_MODEL}",
             "name": "${OLLAMA_MODEL}",
             "reasoning": false,
             "input": ["text"],
             "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
           },
           {
-            "id": "ollama/${OLLAMA_SUBAGENT_MODEL}",
+            "id": "${OLLAMA_SUBAGENT_MODEL}",
             "name": "${OLLAMA_SUBAGENT_MODEL}",
             "reasoning": false,
             "input": ["text"],
             "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
           },
           {
-            "id": "ollama/${OLLAMA_FALLBACK_MODEL}",
+            "id": "${OLLAMA_FALLBACK_MODEL}",
             "name": "${OLLAMA_FALLBACK_MODEL}",
             "reasoning": false,
             "input": ["text"],
@@ -255,7 +279,8 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
   "env": {
     "GOOGLE_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
     "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}",
-    "GOOGLE_REFRESH_TOKEN": "${GOOGLE_REFRESH_TOKEN}"
+    "GOOGLE_REFRESH_TOKEN": "${GOOGLE_REFRESH_TOKEN}",
+    "GOG_ACCOUNT": "${GOOGLE_ACCOUNT}"
   },
   "gateway": {
     "port": 18789,
@@ -275,7 +300,7 @@ EOF
 
 log_ok "openclaw.json 생성 완료: $OPENCLAW_DIR/openclaw.json"
 
-# ── 7. ~/.openclaw/.env 생성 ──────────────────────────────
+# ── 8. ~/.openclaw/.env 생성 ──────────────────────────────
 log_doing "~/.openclaw/.env 생성 중..."
 
 {

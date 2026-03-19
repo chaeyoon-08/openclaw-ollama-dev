@@ -114,6 +114,19 @@ if [ -z "$ACCESS_TOKEN" ]; then
 fi
 
 export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
+echo "$ACCESS_TOKEN" > /root/.gog_access_token
+chmod 600 /root/.gog_access_token
+
+python3 << PYEOF
+import json
+p = "$OPENCLAW_DIR/openclaw.json"
+with open(p) as f:
+    c = json.load(f)
+c.setdefault("env", {})["GOG_ACCESS_TOKEN"] = "$ACCESS_TOKEN"
+with open(p, "w") as f:
+    json.dump(c, f, indent=2, ensure_ascii=False)
+PYEOF
+
 log_ok "Access Token 발급 완료"
 
 # ── 3. 55분마다 자동 갱신 루프 ────────────────────────────
@@ -133,8 +146,18 @@ token_refresh_loop() {
 
       if [ -n "$NEW_TOKEN" ]; then
         export GOG_ACCESS_TOKEN=$NEW_TOKEN
+        echo "$NEW_TOKEN" > /root/.gog_access_token
         # .env 파일에도 갱신해 새 프로세스가 최신 토큰을 사용하도록 함
         sed -i "s|^GOG_ACCESS_TOKEN=.*|GOG_ACCESS_TOKEN=${NEW_TOKEN}|" "$OPENCLAW_DIR/.env" 2>/dev/null || true
+        python3 << PYEOF
+import json
+p = "$OPENCLAW_DIR/openclaw.json"
+with open(p) as f:
+    c = json.load(f)
+c.setdefault("env", {})["GOG_ACCESS_TOKEN"] = "$NEW_TOKEN"
+with open(p, "w") as f:
+    json.dump(c, f, indent=2, ensure_ascii=False)
+PYEOF
         echo -e "${GREEN}[  OK   ]${NC} Access Token 갱신 완료"
         break
       fi
@@ -198,7 +221,7 @@ log_ok "proxy.js 기동 완료 (포트 8080 응답 확인)"
 # ── 6. openclaw gateway 기동 ──────────────────────────────
 log_doing "openclaw gateway 기동"
 
-openclaw gateway --force > "$GATEWAY_LOG" 2>&1 &
+openclaw gateway > "$GATEWAY_LOG" 2>&1 &
 
 # 포트 18789 응답까지 대기 (최대 30초)
 READY=false
