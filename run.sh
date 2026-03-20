@@ -65,32 +65,6 @@ pkill -f 'ollama serve' 2>/dev/null || true
 sleep 2
 
 # 포트 점유 프로세스 종료 (fuser 우선, 없으면 /proc/net/tcp 방식)
-kill_port() {
-  local port=$1
-  if command -v fuser &>/dev/null; then
-    fuser -k "${port}/tcp" 2>/dev/null || true
-  else
-    # /proc/net/tcp: 로컬 주소 컬럼(2번째)에서 포트 hex 검색 후 inode → pid 매핑
-    local hex_port
-    hex_port=$(printf '%04X' "$port")
-    local inodes
-    inodes=$(awk -v p=":${hex_port}" '$2 ~ p {print $10}' /proc/net/tcp /proc/net/tcp6 2>/dev/null)
-    for inode in $inodes; do
-      local pid
-      pid=$(find /proc -maxdepth 4 -name 'fd' -type d 2>/dev/null \
-            | xargs -I{} find {} -type l 2>/dev/null \
-            | xargs ls -la 2>/dev/null \
-            | grep "socket:\[${inode}\]" \
-            | awk -F'/' '{print $3}' | head -1)
-      [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
-    done
-  fi
-}
-
-for PORT in 8080 18789 11434; do
-  kill_port "$PORT"
-done
-sleep 1
 
 log_ok "프로세스 정리 완료"
 
@@ -114,18 +88,9 @@ if [ -z "$ACCESS_TOKEN" ]; then
 fi
 
 export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
+export GOG_ACCOUNT=$GOOGLE_ACCOUNT
 echo "$ACCESS_TOKEN" > /root/.gog_access_token
 chmod 600 /root/.gog_access_token
-
-python3 << PYEOF
-import json
-p = "$OPENCLAW_DIR/openclaw.json"
-with open(p) as f:
-    c = json.load(f)
-c.setdefault("env", {})["GOG_ACCESS_TOKEN"] = "$ACCESS_TOKEN"
-with open(p, "w") as f:
-    json.dump(c, f, indent=2, ensure_ascii=False)
-PYEOF
 
 log_ok "Access Token 발급 완료"
 
@@ -147,17 +112,6 @@ token_refresh_loop() {
       if [ -n "$NEW_TOKEN" ]; then
         export GOG_ACCESS_TOKEN=$NEW_TOKEN
         echo "$NEW_TOKEN" > /root/.gog_access_token
-        # .env 파일에도 갱신해 새 프로세스가 최신 토큰을 사용하도록 함
-        sed -i "s|^GOG_ACCESS_TOKEN=.*|GOG_ACCESS_TOKEN=${NEW_TOKEN}|" "$OPENCLAW_DIR/.env" 2>/dev/null || true
-        python3 << PYEOF
-import json
-p = "$OPENCLAW_DIR/openclaw.json"
-with open(p) as f:
-    c = json.load(f)
-c.setdefault("env", {})["GOG_ACCESS_TOKEN"] = "$NEW_TOKEN"
-with open(p, "w") as f:
-    json.dump(c, f, indent=2, ensure_ascii=False)
-PYEOF
         echo -e "${GREEN}[  OK   ]${NC} Access Token 갱신 완료"
         break
       fi
@@ -248,7 +202,9 @@ echo ""
 echo "  gcube Control UI 접속:"
 echo "  1) gcube 대시보드에서 이 컨테이너의 서비스 URL 확인"
 echo "  2) URL 접속 후 Gateway Token 입력 (openclaw.json의 gateway.auth.token)"
-echo "  3) 처음 접속 시 openclaw devices approve <requestId> 로 기기 승인 필요"
+echo "  3) 처음 접속 시 기기 승인 필요"
+echo "     - 대기 중인 기기 확인: openclaw devices list"
+echo "     - 승인: openclaw devices approve <requestId>"
 echo ""
 echo "  로그 확인:"
 echo "  tail -f $GATEWAY_LOG"

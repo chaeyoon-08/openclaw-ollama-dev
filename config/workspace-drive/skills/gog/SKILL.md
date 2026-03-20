@@ -58,8 +58,12 @@ gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<dat
 ## gog drive
 
 ```bash
-# 파일 검색
-gog drive search "<query>"
+# 파일 목록
+gog drive ls
+
+# 파일 검색 (이름 필터링)
+gog drive ls --name "<name>"
+# 또는: gog drive ls | grep "<keyword>"
 
 # 파일 업로드
 gog drive upload <file>

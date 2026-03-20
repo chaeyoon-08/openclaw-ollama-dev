@@ -11,9 +11,9 @@ run.sh가 기동 시 발급하고 55분마다 자동 갱신한다.
 
 ### 파일 검색
 ```bash
-gog drive search "<query>"
-# 예: gog drive search "회의록"
-# 예: gog drive search "name:보고서 type:document"
+gog drive ls
+# 예: gog drive ls
+# 예: gog drive ls --max 20
 ```
 
 ### 파일 업로드

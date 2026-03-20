@@ -225,7 +225,7 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
         "mode": "safeguard"
       },
       "subagents": {
-        "runTimeoutSeconds": 120
+        "runTimeoutSeconds": 300
       }
     },
     "list": [
@@ -281,6 +281,14 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
     "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}",
     "GOOGLE_REFRESH_TOKEN": "${GOOGLE_REFRESH_TOKEN}",
     "GOG_ACCOUNT": "${GOOGLE_ACCOUNT}"
+  },
+  "tools": {
+    "profile": "full",
+    "exec": {
+      "host": "gateway",
+      "security": "full",
+      "ask": "off"
+    }
   },
   "gateway": {
     "port": 18789,
