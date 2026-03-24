@@ -206,20 +206,23 @@ else
 fi
 
 # ── 4-1. Chromium 헤드리스 설치 ──────────────────────────
+# Ubuntu 24.04에서 chromium-browser는 snap wrapper라 CAP_SETFCAP 오류 발생
+# xtradeb PPA(ppa:xtradeb/apps)를 통해 deb 패키지로 설치
 log_doing "Chromium 확인"
 
-if ! command -v chromium-browser &>/dev/null && ! command -v chromium &>/dev/null; then
-  log_doing "Chromium 설치 중..."
-  if apt-get install -y chromium-browser -qq 2>/dev/null; then
-    log_ok "Chromium 설치 완료: $(chromium-browser --version 2>/dev/null | head -1)"
-  elif apt-get install -y chromium -qq 2>/dev/null; then
+if ! command -v chromium &>/dev/null; then
+  log_doing "Chromium 설치 중 (xtradeb PPA)..."
+  apt-mark hold snapd 2>/dev/null || true
+  apt-get install -y software-properties-common -qq
+  add-apt-repository ppa:xtradeb/apps -y
+  apt-get update -qq
+  if apt-get install -y chromium --no-install-recommends -qq 2>/dev/null; then
     log_ok "Chromium 설치 완료: $(chromium --version 2>/dev/null | head -1)"
   else
-    log_stop "Chromium 설치 실패"
+    log_warn "Chromium 설치 실패 — 브라우저 자동화 비활성화. 핵심 기능에는 영향 없음"
   fi
 else
-  CHROMIUM_BIN=$(command -v chromium-browser 2>/dev/null || command -v chromium)
-  log_ok "Chromium 이미 설치됨: $($CHROMIUM_BIN --version 2>/dev/null | head -1)"
+  log_ok "Chromium 이미 설치됨: $(chromium --version 2>/dev/null | head -1)"
 fi
 
 # ── 5. OpenClaw 설치 ──────────────────────────────────────
@@ -332,27 +335,27 @@ ${MODELS_JSON}
     "telegram": {
       "botToken": "${TELEGRAM_BOT_TOKEN}",
       "dmPolicy": "open",
+      "dmScope": "per-channel-peer",
       "allowFrom": ["*"]
     }
   },
   "env": {
-    "GOOGLE_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
-    "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}",
-    "GOOGLE_REFRESH_TOKEN": "${GOOGLE_REFRESH_TOKEN}"
+    "GOG_ACCOUNT": "${GOOGLE_ACCOUNT}",
+    "GOG_ACCESS_TOKEN": ""
+  },
+  "tools": {
+    "exec": {
+      "enabled": true,
+      "host": "gateway"
+    }
   },
   "plugins": {
     "entries": {
       "telegram": {
         "enabled": true
       },
-      "web-search": {
+      "duckduckgo": {
         "enabled": true
-      },
-      "browser": {
-        "enabled": true,
-        "config": {
-          "headless": true
-        }
       }
     }
   },

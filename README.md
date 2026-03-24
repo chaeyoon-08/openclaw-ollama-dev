@@ -200,6 +200,76 @@ gcube 외부 HTTPS (443)
 
 ---
 
+## 운영 가이드
+
+### run.sh 재실행 방법
+
+run.sh를 재실행할 때는 기존 프로세스가 완전히 종료된 후 실행해야 함.
+연속으로 바로 실행하면 포트 충돌이 발생할 수 있음.
+
+```bash
+# 프로세스 완전 종료
+pkill -9 -f openclaw 2>/dev/null; true
+pkill -9 -f 'node.*proxy' 2>/dev/null; true
+pkill -9 -f 'ollama' 2>/dev/null; true
+sleep 5
+
+# 재실행
+bash run.sh
+```
+
+### Gateway Token 확인
+
+Control UI 접속 시 필요한 토큰 확인 방법:
+
+```bash
+# 토큰 확인
+python3 -c "import json; print(json.load(open('/root/.openclaw/openclaw.json'))['gateway']['auth']['token'])"
+
+# alias 등록해두면 편함 (한 번만 설정)
+echo "alias octoken=\"python3 -c \\\"import json; print(json.load(open('/root/.openclaw/openclaw.json'))['gateway']['auth']['token'])\\\"\"" >> ~/.bashrc
+source ~/.bashrc
+# 이후로는 octoken 입력
+```
+
+### Control UI 연결 및 해제
+
+Control UI와 Telegram은 같은 세션을 공유하므로
+Control UI Chat 탭에서 메시지를 보내면 Telegram 응답에 영향을 줌.
+
+- **Telegram**: 실제 사용 채널
+- **Control UI**: Sessions/Agents/Cron Jobs 모니터링 전용
+
+**Control UI 연결:**
+1. gcube 대시보드에서 서비스 URL 확인
+2. 브라우저에서 해당 URL 접속
+3. Gateway Token 입력 후 Connect
+4. 디바이스 승인 확인: `openclaw devices list`
+
+**Control UI 연결 해제:**
+```bash
+# 연결된 디바이스 목록 확인
+openclaw devices list
+
+# 특정 디바이스 해제
+openclaw devices revoke --device <deviceId> --role operator
+```
+
+**Telegram 연결:**
+- run.sh 실행 시 자동으로 연결 유지
+- device revoke와 무관하게 동작
+- 연결 확인: `openclaw agents bindings`
+
+### 로그 확인
+
+```bash
+tail -f ~/.openclaw/gateway.log   # gateway 오류
+tail -f ~/.openclaw/ollama.log    # 모델 오류
+tail -f ~/.openclaw/proxy.log     # 프록시 오류
+```
+
+---
+
 ## 참고 문서
 
 - OpenClaw 공식 문서: https://docs.openclaw.ai

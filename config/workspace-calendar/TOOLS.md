@@ -21,11 +21,17 @@ gog calendar list --days 7
 gog calendar create --title "<title>" --start "<datetime>" --end "<datetime>"
 # 예: gog calendar create --title "팀 회의" --start "2026-03-25T14:00:00" --end "2026-03-25T15:00:00"
 ```
+- 플래그: `--title`, `--start`, `--end`
+- datetime 형식: `2026-03-25T14:00:00`
+- **주의**: `--start-time`, `--end-time`은 존재하지 않는 플래그. 절대 사용하지 말 것.
 
-### 일정 수정
+### 일정 수정 / 이동
 ```bash
 gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<datetime>"
 ```
+- 플래그: `--title`, `--start`, `--end`
+- 일정 이동 시 `--start`, `--end` 값을 변경해서 update 사용
+- **주의**: `--start-time`, `--end-time`은 존재하지 않는 플래그. 절대 사용하지 말 것.
 
 ### 일정 삭제
 ```bash

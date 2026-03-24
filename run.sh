@@ -49,11 +49,11 @@ set -a
 source "$OPENCLAW_DIR/.env"
 set +a
 
-for VAR in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN OLLAMA_MODEL; do
+for VAR in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN ORCHESTRATOR_MODEL FALLBACK_MODEL; do
   [ -z "${!VAR}" ] && log_stop "$VAR 미설정. setup.sh 를 먼저 실행해 주세요."
 done
 
-log_ok "환경변수 로드 완료 / 모델: $OLLAMA_MODEL"
+log_ok "환경변수 로드 완료 / orchestrator: $ORCHESTRATOR_MODEL / fallback: $FALLBACK_MODEL"
 
 # ── 1. 기존 프로세스 정리 ─────────────────────────────────
 log_doing "기존 프로세스 정리"
@@ -117,6 +117,17 @@ if [ -z "$ACCESS_TOKEN" ]; then
 fi
 
 export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
+
+# openclaw.json env.GOG_ACCESS_TOKEN 업데이트 (서브에이전트는 셸 환경변수를 상속받지 않으므로)
+python3 -c "
+import json
+with open('/root/.openclaw/openclaw.json', 'r') as f:
+    d = json.load(f)
+d['env']['GOG_ACCESS_TOKEN'] = '${ACCESS_TOKEN}'
+with open('/root/.openclaw/openclaw.json', 'w') as f:
+    json.dump(d, f, indent=2)
+" 2>/dev/null || log_warn "openclaw.json GOG_ACCESS_TOKEN 업데이트 실패"
+
 log_ok "Access Token 발급 완료"
 
 # ── 3. 55분마다 자동 갱신 루프 ────────────────────────────
@@ -138,6 +149,15 @@ token_refresh_loop() {
         export GOG_ACCESS_TOKEN=$NEW_TOKEN
         # .env 파일에도 갱신해 새 프로세스가 최신 토큰을 사용하도록 함
         sed -i "s|^GOG_ACCESS_TOKEN=.*|GOG_ACCESS_TOKEN=${NEW_TOKEN}|" "$OPENCLAW_DIR/.env" 2>/dev/null || true
+        # openclaw.json env.GOG_ACCESS_TOKEN 업데이트 (서브에이전트는 셸 환경변수를 상속받지 않으므로)
+        python3 -c "
+import json
+with open('/root/.openclaw/openclaw.json', 'r') as f:
+    d = json.load(f)
+d['env']['GOG_ACCESS_TOKEN'] = '${NEW_TOKEN}'
+with open('/root/.openclaw/openclaw.json', 'w') as f:
+    json.dump(d, f, indent=2)
+" 2>/dev/null || true
         echo -e "${GREEN}[  OK   ]${NC} Access Token 갱신 완료"
         break
       fi
