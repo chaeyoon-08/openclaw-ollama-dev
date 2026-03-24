@@ -1,6 +1,6 @@
 ---
 name: gog
-description: Google Workspace CLI (Gmail, Calendar, Drive)
+description: Google Workspace CLI (Calendar)
 ---
 
 # gog — Google Workspace CLI
@@ -12,28 +12,6 @@ description: Google Workspace CLI (Gmail, Calendar, Drive)
 
 ```bash
 export GOG_ACCESS_TOKEN=<access_token>
-```
-
----
-
-## gog gmail
-
-```bash
-# 메일 검색
-gog gmail search "<query>"
-# 예: gog gmail search "from:kim@example.com is:unread"
-
-# 메일 조회
-gog gmail get <messageId>
-
-# 메일 전송
-gog gmail send --to <email> --subject "<subject>" --body "<body>"
-
-# 초안 작성
-gog gmail draft --to <email> --subject "<subject>" --body "<body>"
-
-# 메일 답장
-gog gmail reply <messageId> --body "<body>"
 ```
 
 ---
@@ -51,19 +29,7 @@ gog calendar create --title "<title>" --start "<datetime>" --end "<datetime>"
 
 # 일정 수정
 gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<datetime>"
-```
 
----
-
-## gog drive
-
-```bash
-# 파일 검색
-gog drive search "<query>"
-
-# 파일 업로드
-gog drive upload <file>
-
-# 파일 다운로드
-gog drive download <fileId>
+# 일정 삭제
+gog calendar delete <eventId>
 ```

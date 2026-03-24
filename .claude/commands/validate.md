@@ -29,8 +29,22 @@
 - [ ] Access Token 발급 실패 시 처리
 
 ### 워크스페이스 구조 (setup-agent.sh)
-- [ ] orchestrator: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, skills/gog/SKILL.md
+- [ ] orchestrator: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md (skills/gog/ 없음)
 - [ ] mail/calendar/drive: AGENTS.md, TOOLS.md, skills/gog/SKILL.md
+
+### orchestrator 응답 품질 규칙
+- [ ] SOUL.md에 언어/반복/불필요한 설명/맥락/허위 보고 금지 항목 존재
+- [ ] AGENTS.md에 미호출 결과 생성 금지 항목 존재
+- [ ] AGENTS.md에 빈 결과/오류 보고 형식 명시
+
+### Drive MEMORY.md 백업
+- [ ] HEARTBEAT.md에 MEMORY.md 백업 섹션 존재
+- [ ] orchestrator TOOLS.md에 MEMORY.md 복원 플로우 존재
+- [ ] drive TOOLS.md에 MEMORY.md 백업 업로드 명령어 존재
+
+### 자동화 관리
+- [ ] orchestrator AGENTS.md에 자동화 목록/추가/제거 위임 규칙 존재
+- [ ] orchestrator TOOLS.md에 HEARTBEAT 자동화 관리 섹션 존재
 
 ### proxy.js
 - [ ] `http` + `net` 내장 모듈만 사용 (npm 패키지 없음)

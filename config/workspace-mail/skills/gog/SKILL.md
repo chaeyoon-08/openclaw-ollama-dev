@@ -1,6 +1,6 @@
 ---
 name: gog
-description: Google Workspace CLI (Gmail, Calendar, Drive)
+description: Google Workspace CLI (Gmail)
 ---
 
 # gog — Google Workspace CLI
@@ -34,36 +34,14 @@ gog gmail draft --to <email> --subject "<subject>" --body "<body>"
 
 # 메일 답장
 gog gmail reply <messageId> --body "<body>"
-```
 
----
+# 메일 라벨 지정
+gog gmail label <messageId> <labelName>
+# 예: gog gmail label abc123 IMPORTANT
 
-## gog calendar
+# 메일 보관처리
+gog gmail archive <messageId>
 
-```bash
-# 일정 조회 (기본: 오늘)
-gog calendar list
-gog calendar list --days 7
-
-# 일정 등록
-gog calendar create --title "<title>" --start "<datetime>" --end "<datetime>"
-# datetime 형식: 2026-03-25T14:00:00
-
-# 일정 수정
-gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<datetime>"
-```
-
----
-
-## gog drive
-
-```bash
-# 파일 검색
-gog drive search "<query>"
-
-# 파일 업로드
-gog drive upload <file>
-
-# 파일 다운로드
-gog drive download <fileId>
+# 메일 휴지통 이동
+gog gmail trash <messageId>
 ```

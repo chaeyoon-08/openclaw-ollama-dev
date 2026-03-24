@@ -49,15 +49,17 @@ set -a
 source "$OPENCLAW_DIR/.env"
 set +a
 
-if [ -z "$OLLAMA_MODEL" ]; then
-  log_stop "OLLAMA_MODEL 미설정. setup.sh 를 먼저 실행해 주세요."
-fi
-if [ -z "$OLLAMA_SUBAGENT_MODEL" ]; then
-  log_stop "OLLAMA_SUBAGENT_MODEL 미설정. setup.sh 를 먼저 실행해 주세요."
-fi
+for _VAR in ORCHESTRATOR_MODEL MAIL_MODEL CALENDAR_MODEL DRIVE_MODEL FALLBACK_MODEL; do
+  if [ -z "${!_VAR}" ]; then
+    log_stop "${_VAR} 미설정. setup.sh 를 먼저 실행해 주세요."
+  fi
+done
 
-log_ok "오케스트레이터: $OLLAMA_MODEL"
-log_ok "서브에이전트:   $OLLAMA_SUBAGENT_MODEL"
+log_ok "orchestrator: $ORCHESTRATOR_MODEL"
+log_ok "mail:         $MAIL_MODEL"
+log_ok "calendar:     $CALENDAR_MODEL"
+log_ok "drive:        $DRIVE_MODEL"
+log_ok "fallback:     $FALLBACK_MODEL"
 
 # ── 2. 워크스페이스 파일 복사 ─────────────────────────────
 log_doing "워크스페이스 파일 복사"

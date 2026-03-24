@@ -1,6 +1,6 @@
 ---
 name: gog
-description: Google Workspace CLI (Gmail, Calendar, Drive)
+description: Google Workspace CLI (Drive)
 ---
 
 # gog — Google Workspace CLI
@@ -16,45 +16,6 @@ export GOG_ACCESS_TOKEN=<access_token>
 
 ---
 
-## gog gmail
-
-```bash
-# 메일 검색
-gog gmail search "<query>"
-# 예: gog gmail search "from:kim@example.com is:unread"
-
-# 메일 조회
-gog gmail get <messageId>
-
-# 메일 전송
-gog gmail send --to <email> --subject "<subject>" --body "<body>"
-
-# 초안 작성
-gog gmail draft --to <email> --subject "<subject>" --body "<body>"
-
-# 메일 답장
-gog gmail reply <messageId> --body "<body>"
-```
-
----
-
-## gog calendar
-
-```bash
-# 일정 조회 (기본: 오늘)
-gog calendar list
-gog calendar list --days 7
-
-# 일정 등록
-gog calendar create --title "<title>" --start "<datetime>" --end "<datetime>"
-# datetime 형식: 2026-03-25T14:00:00
-
-# 일정 수정
-gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<datetime>"
-```
-
----
-
 ## gog drive
 
 ```bash
@@ -64,6 +25,13 @@ gog drive search "<query>"
 # 파일 업로드
 gog drive upload <file>
 
+# 폴더 지정 업로드 (폴더가 없으면 자동 생성)
+gog drive upload <file> --folder <folderName>
+# 예: gog drive upload ./MEMORY.md --folder openclaw-memory
+
 # 파일 다운로드
 gog drive download <fileId>
+
+# 문서 내용 읽기 (Docs, Sheets, Slides → 텍스트)
+gog drive read <fileId>
 ```

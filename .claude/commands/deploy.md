@@ -11,9 +11,12 @@ gcube 배포 전 체크리스트를 확인한다.
 - [ ] `GOOGLE_CLIENT_SECRET` — 값 있음
 - [ ] `GOOGLE_REFRESH_TOKEN` — 값 있음
 - [ ] `GOOGLE_ACCOUNT` — 값 있음
-- [ ] `OLLAMA_MODEL` — 값 있음
-- [ ] `OLLAMA_SUBAGENT_MODEL` — 값 있음
-- [ ] `OLLAMA_FALLBACK_MODEL` — 값 있음
+- [ ] `ORCHESTRATOR_MODEL` — 값 있음
+- [ ] `MAIL_MODEL` — 값 있음
+- [ ] `CALENDAR_MODEL` — 값 있음
+- [ ] `DRIVE_MODEL` — 값 있음
+- [ ] `FALLBACK_MODEL` — 값 있음
+- [ ] `DRIVE_MEMORY_FOLDER` — 값 있음 (없으면 기본값 `openclaw-memory` 사용)
 
 ### 포트 설정
 - [ ] `proxy.js` 존재 여부
@@ -21,9 +24,11 @@ gcube 배포 전 체크리스트를 확인한다.
 - [ ] `~/.openclaw/openclaw.json` gateway.port가 `18789`인지 확인
 
 ### 모델 이름
-- [ ] `OLLAMA_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
-- [ ] `OLLAMA_SUBAGENT_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
-- [ ] `OLLAMA_FALLBACK_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
+- [ ] `ORCHESTRATOR_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
+- [ ] `MAIL_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
+- [ ] `CALENDAR_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
+- [ ] `DRIVE_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
+- [ ] `FALLBACK_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
 
 ### Google OAuth 상태
 - [ ] Refresh Token으로 Access Token 발급 테스트

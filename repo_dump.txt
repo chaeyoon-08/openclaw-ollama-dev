@@ -1,0 +1,2163 @@
+========================================
+FILE: ./.claude/commands/agent.md
+========================================
+# /agent
+
+setup-agent.sh 와 config/workspace-*/ 파일들을 작성 또는 수정한다.
+
+스펙 참조: @spec/SPEC.md
+
+## 작업 순서
+
+1. **~/.openclaw/.env 로드**
+   - 파일 없으면 `log_stop` ("먼저 setup.sh 를 실행해 주세요.")
+   - `OLLAMA_MODEL`, `OLLAMA_SUBAGENT_MODEL` 필수 검증
+
+2. **워크스페이스 파일 복사**
+   - 각 에이전트별 `~/.openclaw/workspace-{agent}/` 및 `skills/gog/` 디렉터리 생성
+   - `config/workspace-{agent}/` → `~/.openclaw/workspace-{agent}/` 복사
+   - 스킬 복사: `config/skills/gog/SKILL.md` → 각 워크스페이스 `skills/gog/SKILL.md`
+   - 파일 없으면 `log_warn`
+
+3. **USER.md 주입** (orchestrator 전용)
+   - `~/.openclaw/workspace-orchestrator/USER.md` 생성
+   - 내용: `GOOGLE_ACCOUNT` 환경변수로부터 사용자 이메일 기록
+
+4. **Access Token 테스트**
+   - Refresh Token으로 Access Token 발급 시도 (SPEC.md 인증 방식 참조)
+   - 성공 시 `log_ok`, 실패 시 `log_warn` (스크립트는 계속 진행)
+
+5. **gog 연동 확인**
+   - `GOG_ACCESS_TOKEN` 설정 후 `gog` 명령 실행 가능 여부 확인
+
+6. **openclaw.json 설정 확인**
+   - `~/.openclaw/openclaw.json`을 읽어 아래 항목이 올바른지 검증:
+     - `agents.list`에 orchestrator, mail, calendar, drive 4개 존재 여부
+     - orchestrator의 `subagents.allowAgents`: ["mail", "calendar", "drive"]
+     - `channels.telegram.botToken` 값 존재 여부
+   - 문제 있으면 `log_warn` 후 수정 방법 안내
+   - **gateway 기동은 run.sh에서만 담당** — 이 스크립트에서 gateway를 직접 기동하지 않음
+
+7. **등록 결과 출력**
+   - `openclaw agents list`
+   - `openclaw agents bindings`
+
+## 로그 스타일
+
+CLAUDE.md의 로그 함수를 사용한다.
+
+========================================
+FILE: ./.claude/commands/deploy.md
+========================================
+# /deploy
+
+gcube 배포 전 체크리스트를 확인한다.
+
+## 체크리스트
+
+### .env 항목 누락 여부
+프로젝트 루트 `.env` 파일을 읽고 아래 항목이 모두 설정되어 있는지 확인:
+- [ ] `TELEGRAM_BOT_TOKEN` — 값 있음
+- [ ] `GOOGLE_CLIENT_ID` — 값 있음
+- [ ] `GOOGLE_CLIENT_SECRET` — 값 있음
+- [ ] `GOOGLE_REFRESH_TOKEN` — 값 있음
+- [ ] `GOOGLE_ACCOUNT` — 값 있음
+- [ ] `OLLAMA_MODEL` — 값 있음
+- [ ] `OLLAMA_SUBAGENT_MODEL` — 값 있음
+- [ ] `OLLAMA_FALLBACK_MODEL` — 값 있음
+
+### 포트 설정
+- [ ] `proxy.js` 존재 여부
+- [ ] proxy.js 내 `0.0.0.0:8080` → `127.0.0.1:18789` 포워딩 설정
+- [ ] `~/.openclaw/openclaw.json` gateway.port가 `18789`인지 확인
+
+### 모델 이름
+- [ ] `OLLAMA_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
+- [ ] `OLLAMA_SUBAGENT_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
+- [ ] `OLLAMA_FALLBACK_MODEL` 값이 `ollama list` 출력에 존재하는지 확인
+
+### Google OAuth 상태
+- [ ] Refresh Token으로 Access Token 발급 테스트
+- [ ] Google Cloud Console OAuth Consent Screen 상태 확인 안내
+  - Testing 모드: Refresh Token 7일마다 만료 (spec/HANDOVER.md 참조)
+  - Production 전환 권장
+
+### 스크립트 파일
+- [ ] `setup.sh` 존재 및 실행 권한 (`chmod +x`)
+- [ ] `setup-agent.sh` 존재 및 실행 권한
+- [ ] `run.sh` 존재 및 실행 권한
+
+## 출력 형식
+
+각 항목을 순서대로 확인하고 결과를 출력한다.
+실패 항목은 수정 방법을 함께 안내한다.
+모든 항목 통과 시 배포 준비 완료 메시지를 출력한다.
+
+========================================
+FILE: ./.claude/commands/run.md
+========================================
+# /run
+
+run.sh 와 proxy.js 를 작성 또는 수정한다.
+
+스펙 참조: @spec/SPEC.md, @spec/HANDOVER.md
+
+## proxy.js 스펙
+
+- node 내장 모듈만 사용 (`http`, `net`) — npm install 불필요
+- `0.0.0.0:8080` → `127.0.0.1:18789` 프록시
+- HTTP 요청 + WebSocket Upgrade 요청 모두 처리 (HANDOVER.md 검증 완료)
+
+## run.sh 작업 순서
+
+1. **기존 프로세스 정리**
+   - 포트 8080, 18789, 11434 점유 프로세스 kill
+   - openclaw, proxy.js, ollama 프로세스 종료
+
+2. **Access Token 발급** (SPEC.md 인증 방식 참조)
+   ```bash
+   ACCESS_TOKEN=$(curl -s -X POST https://oauth2.googleapis.com/token \
+     -d "grant_type=refresh_token" \
+     -d "client_id=$GOOGLE_CLIENT_ID" \
+     -d "client_secret=$GOOGLE_CLIENT_SECRET" \
+     -d "refresh_token=$GOOGLE_REFRESH_TOKEN" | \
+     python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+   export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
+   ```
+
+3. **55분마다 자동 갱신하는 백그라운드 루프 시작**
+   - 갱신 실패 시 `log_error` + 재시도 (최대 3회)
+   - 3회 모두 실패 시 `log_warn` 후 다음 주기 대기 (프로세스 종료 안 함)
+
+4. **Ollama 서버 백그라운드 기동**
+   - `ollama serve` 백그라운드 실행, 로그는 `~/.openclaw/ollama.log`
+
+5. **proxy.js 백그라운드 기동**
+   - `node proxy.js` 백그라운드 실행
+
+6. **openclaw gateway 백그라운드 기동**
+   - `openclaw gateway > ~/.openclaw/gateway.log 2>&1 &` 백그라운드 실행
+   - 10초 대기 후 `openclaw gateway status`로 정상 기동 확인
+   - 실패 시 `log_error` + `log_stop` 종료
+
+7. **기동 완료 메시지 출력**
+   - Telegram 바인딩 확인 방법 안내
+   - 로그 확인 명령어 안내
+
+## 로그 스타일
+
+CLAUDE.md의 로그 함수를 사용한다.
+
+========================================
+FILE: ./.claude/commands/setup.md
+========================================
+# /setup
+
+setup.sh 를 작성 또는 수정한다.
+
+스펙 참조: @spec/SPEC.md
+
+## 작업 순서
+
+1. **.env 검증**
+   - 프로젝트 루트 `.env` 로드 (있을 경우)
+   - 필수 변수 확인: `TELEGRAM_BOT_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+     `GOOGLE_REFRESH_TOKEN`, `OLLAMA_MODEL`, `OLLAMA_SUBAGENT_MODEL`, `OLLAMA_FALLBACK_MODEL`
+   - 미설정 변수 목록 출력 후 `log_stop` 종료
+
+2. **Node.js 확인**
+   - 미설치 또는 18 미만이면 NodeSource 스크립트로 설치:
+     ```bash
+     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+     apt-get install -y nodejs
+     ```
+   - 설치 후 버전 재확인
+
+3. **Ollama 설치**
+   - 미설치 시: `curl -fsSL https://ollama.ai/install.sh | sh`
+   - 설치됨 시: 버전 출력
+
+4. **gogcli 설치**
+   - 미설치 시:
+     1. gogcli go.mod에서 요구 Go 버전 확인 → Ubuntu `golang-go`는 버전이 낮아 사용 불가
+     2. 공식 Go 바이너리 설치:
+        ```bash
+        GO_VERSION="1.25.8"   # gogcli go.mod의 go directive에 맞춰 조정
+        curl -OL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz
+        export PATH=$PATH:/usr/local/go/bin
+        ```
+     3. 빌드 의존성: `apt-get install -y make build-essential`
+     4. `/tmp`에 `https://github.com/steipete/gogcli.git` clone → `make` → `/usr/local/bin/gog` 복사
+   - 설치됨 시: 버전 출력
+
+5. **OpenClaw 설치**
+   - 미설치 시: `npm install -g openclaw`
+   - 설치됨 시: 버전 출력
+
+6. **openclaw.json 생성** (`~/.openclaw/openclaw.json`)
+   - `models.providers.ollama`: baseUrl `http://127.0.0.1:11434`, 3개 모델 등록
+   - `agents.defaults`: compaction safeguard, runTimeoutSeconds 120
+   - `agents.list`: orchestrator(32b), mail(8b), calendar(8b), drive(8b)
+     - orchestrator의 `subagents.allowAgents`: ["mail", "calendar", "drive"]
+   - `channels.telegram`: botToken, dmPolicy open, allowFrom ["*"]
+   - `env`: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
+   - **gateway**: port **18789**, bind **loopback**, trustedProxies ["127.0.0.1"],
+     dangerouslyAllowHostHeaderOriginFallback true
+
+7. **~/.openclaw/.env 생성** (chmod 600)
+   - Google 인증 정보 + 봇 토큰 + 모델명 기록
+   - `printf '%s\n'` 사용 (특수문자 안전)
+
+## 로그 스타일
+
+CLAUDE.md의 로그 함수를 사용한다.
+
+========================================
+FILE: ./.claude/commands/validate.md
+========================================
+# /validate
+
+작성된 스크립트들이 스펙에 맞게 구현됐는지 검토한다.
+
+스펙 참조: @spec/SPEC.md
+
+## 확인 항목
+
+### 로그 스타일
+- [ ] 이모지 없음
+- [ ] ANSI 색상 함수 사용 (`log_start`, `log_doing`, `log_ok`, `log_warn`, `log_error`, `log_stop`, `log_done`, `log_next`)
+- [ ] 함수 미선언 시 지적
+
+### 포트 구조
+- [ ] proxy.js: `0.0.0.0:8080` 바인딩
+- [ ] proxy.js: `127.0.0.1:18789` 로 포워딩
+- [ ] openclaw gateway: port `18789`, bind `loopback`
+- [ ] `trustedProxies: ["127.0.0.1"]` 설정 존재
+
+### Google 인증 방식
+- [ ] `GOG_ACCESS_TOKEN` 환경변수 방식 사용
+- [ ] Refresh Token → curl → Access Token 발급 로직
+- [ ] 55분 갱신 주기
+- [ ] 최대 3회 재시도 로직
+
+### 에러 처리
+- [ ] 필수 환경변수 미설정 시 `log_stop` 종료
+- [ ] 각 설치 단계 실패 시 처리 (설치 재시도 또는 warn)
+- [ ] Access Token 발급 실패 시 처리
+
+### 워크스페이스 구조 (setup-agent.sh)
+- [ ] orchestrator: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, HEARTBEAT.md, skills/gog/SKILL.md
+- [ ] mail/calendar/drive: AGENTS.md, TOOLS.md, skills/gog/SKILL.md
+
+### proxy.js
+- [ ] `http` + `net` 내장 모듈만 사용 (npm 패키지 없음)
+- [ ] HTTP 일반 요청 프록시 처리
+- [ ] WebSocket Upgrade 요청 터널 처리
+
+## 출력 형식
+
+각 항목을 순서대로 검토하고 결과를 출력한다.
+문제 발견 시 해당 파일과 줄 번호를 명시하고 수정 방법을 제안한다.
+
+========================================
+FILE: ./.claude/settings.local.json
+========================================
+{
+  "permissions": {
+    "allow": [
+      "Bash(while read:*)",
+      "Bash(do echo:*)",
+      "Bash(__NEW_LINE_b7a6715fb9369504__ echo:*)",
+      "Bash(__NEW_LINE_b7a6715fb9369504__ cat:*)",
+      "Bash(__NEW_LINE_b7a6715fb9369504__ done:*)",
+      "Bash(__NEW_LINE_e808cd85e80325a2__ echo:*)",
+      "Bash(__NEW_LINE_e808cd85e80325a2__ cat:*)",
+      "Bash(__NEW_LINE_e808cd85e80325a2__ done:*)"
+    ]
+  }
+}
+
+========================================
+FILE: ./.env.example
+========================================
+TELEGRAM_BOT_TOKEN=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REFRESH_TOKEN=
+GOOGLE_ACCOUNT=
+OLLAMA_MODEL=
+OLLAMA_SUBAGENT_MODEL=
+OLLAMA_FALLBACK_MODEL=
+
+========================================
+FILE: ./.gitignore
+========================================
+# secret
+.env
+
+# Claude Code
+# .claude/
+# CLAUDE.md
+# spec/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그 및 런타임
+*.log
+/tmp/
+*.tmp
+========================================
+FILE: ./CLAUDE.md
+========================================
+# CLAUDE.md — openclaw-ollama-dev
+
+Telegram 하나로 Gmail/Calendar/Drive를 AI가 자동 처리하는 개인 업무 비서.
+OpenClaw + Ollama 기반 멀티 에이전트 구조. API 비용 없음.
+
+---
+
+## 핵심 규칙
+
+- **공식 문서 확인 필수**: 확인되지 않은 API/CLI 옵션 사용 금지
+  - openclaw: https://docs.openclaw.ai
+  - gogcli: https://github.com/steipete/gogcli
+- **파일 상단에 참고 URL 주석 추가**: 스크립트 작성 시 참고한 공식 문서 URL을 주석으로 명시
+- **이모지 금지**: 스크립트 출력에 이모지 사용 금지. ANSI 색상만 사용
+- **sh 파일 무단 수정 금지**: 커맨드(/setup, /agent, /run)로 명시적으로 요청된 경우에만 수정
+
+---
+
+## 스펙 문서 참조
+
+| 문서 | 내용 |
+|---|---|
+| `spec/PRD.md` | 프로젝트 목표, 배포 환경, 사용 흐름 |
+| `spec/SPEC.md` | 기술 스펙 (포트 구조, 인증 방식, 워크스페이스 구조, 로그 스타일) |
+| `spec/HANDOVER.md` | 검증된 사항, 미해결 이슈, 주요 설정값 |
+
+---
+
+## 포트 구조
+
+```
+gcube 외부 HTTPS
+    ↓
+proxy.js (0.0.0.0:8080)   ← node 내장 http+net, WebSocket 터널 포함
+    ↓
+openclaw gateway (127.0.0.1:18789)
+```
+
+---
+
+## Google 인증 방식
+
+GOG_ACCESS_TOKEN 방식 (gogcli v0.12.0 공식 지원):
+
+```bash
+ACCESS_TOKEN=$(curl -s -X POST https://oauth2.googleapis.com/token \
+  -d "grant_type=refresh_token" \
+  -d "client_id=$GOOGLE_CLIENT_ID" \
+  -d "client_secret=$GOOGLE_CLIENT_SECRET" \
+  -d "refresh_token=$GOOGLE_REFRESH_TOKEN" | \
+  python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
+```
+
+run.sh 기동 시 발급 → 55분마다 백그라운드 루프에서 자동 갱신.
+
+---
+
+## 로그 함수
+
+모든 스크립트에서 동일하게 사용. ANSI 색상만, 이모지 없음.
+
+```bash
+BOLD_BLUE='\033[1;34m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+BOLD_GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD_RED='\033[1;31m'
+NC='\033[0m'
+
+log_start()  { echo -e "${BOLD_BLUE}[ START ]${NC} $1"; }
+log_doing()  { echo -e "${CYAN}[ DOING ]${NC} $1"; }
+log_ok()     { echo -e "${GREEN}[  OK   ]${NC} $1"; }
+log_warn()   { echo -e "${YELLOW}[ WARN  ]${NC} $1"; }
+log_error()  { echo -e "${RED}[ ERROR ]${NC} $1"; }
+log_stop()   { echo -e "${BOLD_RED}[ STOP  ]${NC} $1"; exit 1; }
+log_done()   { echo -e "${BOLD_GREEN}[ DONE  ]${NC} $1"; }
+log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
+```
+
+========================================
+FILE: ./config/workspace-calendar/AGENTS.md
+========================================
+# AGENTS.md — calendar
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+
+## 역할
+
+Google Calendar 일정 조회, 등록, 수정, 삭제를 전담한다.
+orchestrator로부터 위임받은 작업만 처리한다.
+
+## 사용 도구
+
+`gog calendar` 명령어만 사용한다. 다른 Google 서비스(Gmail, Drive)는 담당하지 않는다.
+자세한 명령어는 TOOLS.md 참조.
+
+## 응답 규칙
+
+- 응답은 항상 한국어로 작성
+- 일정 목록 조회 시 날짜, 시간, 제목을 포함해 요약
+- 오류 발생 시 오류 내용과 함께 시도한 명령어를 명시
+
+========================================
+FILE: ./config/workspace-calendar/TOOLS.md
+========================================
+# TOOLS.md — calendar
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+# ref: https://github.com/steipete/gogcli
+
+## 인증
+
+`GOG_ACCESS_TOKEN` 환경변수가 설정된 상태에서 gog 명령어를 실행한다.
+run.sh가 기동 시 발급하고 55분마다 자동 갱신한다.
+
+## gog calendar 명령어
+
+### 일정 조회
+```bash
+gog calendar list
+gog calendar list --days 7
+# 예: 향후 7일간 일정 조회
+```
+
+### 일정 등록
+```bash
+gog calendar create --title "<title>" --start "<datetime>" --end "<datetime>"
+# 예: gog calendar create --title "팀 회의" --start "2026-03-25T14:00:00" --end "2026-03-25T15:00:00"
+```
+
+### 일정 수정
+```bash
+gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<datetime>"
+```
+
+========================================
+FILE: ./config/workspace-calendar/skills/gog/SKILL.md
+========================================
+---
+name: gog
+description: Google Workspace CLI (Gmail, Calendar, Drive)
+---
+
+# gog — Google Workspace CLI
+# ref: https://github.com/steipete/gogcli
+
+## 인증
+
+`GOG_ACCESS_TOKEN` 환경변수로 인증한다. run.sh가 발급 및 자동 갱신을 담당한다.
+
+```bash
+export GOG_ACCESS_TOKEN=<access_token>
+```
+
+---
+
+## gog gmail
+
+```bash
+# 메일 검색
+gog gmail search "<query>"
+# 예: gog gmail search "from:kim@example.com is:unread"
+
+# 메일 조회
+gog gmail get <messageId>
+
+# 메일 전송
+gog gmail send --to <email> --subject "<subject>" --body "<body>"
+
+# 초안 작성
+gog gmail draft --to <email> --subject "<subject>" --body "<body>"
+
+# 메일 답장
+gog gmail reply <messageId> --body "<body>"
+```
+
+---
+
+## gog calendar
+
+```bash
+# 일정 조회 (기본: 오늘)
+gog calendar list
+gog calendar list --days 7
+
+# 일정 등록
+gog calendar create --title "<title>" --start "<datetime>" --end "<datetime>"
+# datetime 형식: 2026-03-25T14:00:00
+
+# 일정 수정
+gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<datetime>"
+```
+
+---
+
+## gog drive
+
+```bash
+# 파일 검색
+gog drive search "<query>"
+
+# 파일 업로드
+gog drive upload <file>
+
+# 파일 다운로드
+gog drive download <fileId>
+```
+
+========================================
+FILE: ./config/workspace-drive/AGENTS.md
+========================================
+# AGENTS.md — drive
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+
+## 역할
+
+Google Drive 파일 검색, 업로드, 다운로드를 전담한다.
+Docs, Sheets, Slides 문서 조회 및 편집도 담당한다.
+orchestrator로부터 위임받은 작업만 처리한다.
+
+## 사용 도구
+
+`gog drive` 명령어만 사용한다. 다른 Google 서비스(Gmail, Calendar)는 담당하지 않는다.
+자세한 명령어는 TOOLS.md 참조.
+
+## 응답 규칙
+
+- 응답은 항상 한국어로 작성
+- 파일 목록 조회 시 파일명, 유형, 수정일을 포함해 요약
+- 오류 발생 시 오류 내용과 함께 시도한 명령어를 명시
+
+========================================
+FILE: ./config/workspace-drive/TOOLS.md
+========================================
+# TOOLS.md — drive
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+# ref: https://github.com/steipete/gogcli
+
+## 인증
+
+`GOG_ACCESS_TOKEN` 환경변수가 설정된 상태에서 gog 명령어를 실행한다.
+run.sh가 기동 시 발급하고 55분마다 자동 갱신한다.
+
+## gog drive 명령어
+
+### 파일 검색
+```bash
+gog drive search "<query>"
+# 예: gog drive search "회의록"
+# 예: gog drive search "name:보고서 type:document"
+```
+
+### 파일 업로드
+```bash
+gog drive upload <file>
+# 예: gog drive upload ./report.pdf
+```
+
+### 파일 다운로드
+```bash
+gog drive download <fileId>
+```
+
+========================================
+FILE: ./config/workspace-drive/skills/gog/SKILL.md
+========================================
+---
+name: gog
+description: Google Workspace CLI (Gmail, Calendar, Drive)
+---
+
+# gog — Google Workspace CLI
+# ref: https://github.com/steipete/gogcli
+
+## 인증
+
+`GOG_ACCESS_TOKEN` 환경변수로 인증한다. run.sh가 발급 및 자동 갱신을 담당한다.
+
+```bash
+export GOG_ACCESS_TOKEN=<access_token>
+```
+
+---
+
+## gog gmail
+
+```bash
+# 메일 검색
+gog gmail search "<query>"
+# 예: gog gmail search "from:kim@example.com is:unread"
+
+# 메일 조회
+gog gmail get <messageId>
+
+# 메일 전송
+gog gmail send --to <email> --subject "<subject>" --body "<body>"
+
+# 초안 작성
+gog gmail draft --to <email> --subject "<subject>" --body "<body>"
+
+# 메일 답장
+gog gmail reply <messageId> --body "<body>"
+```
+
+---
+
+## gog calendar
+
+```bash
+# 일정 조회 (기본: 오늘)
+gog calendar list
+gog calendar list --days 7
+
+# 일정 등록
+gog calendar create --title "<title>" --start "<datetime>" --end "<datetime>"
+# datetime 형식: 2026-03-25T14:00:00
+
+# 일정 수정
+gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<datetime>"
+```
+
+---
+
+## gog drive
+
+```bash
+# 파일 검색
+gog drive search "<query>"
+
+# 파일 업로드
+gog drive upload <file>
+
+# 파일 다운로드
+gog drive download <fileId>
+```
+
+========================================
+FILE: ./config/workspace-mail/AGENTS.md
+========================================
+# AGENTS.md — mail
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+
+## 역할
+
+Gmail 조회, 검색, 초안 작성, 전송을 전담한다.
+orchestrator로부터 위임받은 작업만 처리한다.
+
+## 사용 도구
+
+`gog gmail` 명령어만 사용한다. 다른 Google 서비스(Calendar, Drive)는 담당하지 않는다.
+자세한 명령어는 TOOLS.md 참조.
+
+## 응답 규칙
+
+- 응답은 항상 한국어로 작성
+- 메일 목록 조회 시 발신자, 제목, 날짜를 포함해 요약
+- 오류 발생 시 오류 내용과 함께 시도한 명령어를 명시
+
+========================================
+FILE: ./config/workspace-mail/TOOLS.md
+========================================
+# TOOLS.md — mail
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+# ref: https://github.com/steipete/gogcli
+
+## 인증
+
+`GOG_ACCESS_TOKEN` 환경변수가 설정된 상태에서 gog 명령어를 실행한다.
+run.sh가 기동 시 발급하고 55분마다 자동 갱신한다.
+
+## gog gmail 명령어
+
+### 메일 검색
+```bash
+gog gmail search "<query>"
+# 예: gog gmail search "from:kim@example.com"
+# 예: gog gmail search "subject:회의 is:unread"
+```
+
+### 메일 조회
+```bash
+gog gmail get <messageId>
+```
+
+### 메일 전송
+```bash
+gog gmail send --to <email> --subject "<subject>" --body "<body>"
+# 예: gog gmail send --to kim@example.com --subject "안녕하세요" --body "내용"
+```
+
+### 초안 작성
+```bash
+gog gmail draft --to <email> --subject "<subject>" --body "<body>"
+```
+
+### 메일 답장
+```bash
+gog gmail reply <messageId> --body "<body>"
+```
+
+========================================
+FILE: ./config/workspace-mail/skills/gog/SKILL.md
+========================================
+---
+name: gog
+description: Google Workspace CLI (Gmail, Calendar, Drive)
+---
+
+# gog — Google Workspace CLI
+# ref: https://github.com/steipete/gogcli
+
+## 인증
+
+`GOG_ACCESS_TOKEN` 환경변수로 인증한다. run.sh가 발급 및 자동 갱신을 담당한다.
+
+```bash
+export GOG_ACCESS_TOKEN=<access_token>
+```
+
+---
+
+## gog gmail
+
+```bash
+# 메일 검색
+gog gmail search "<query>"
+# 예: gog gmail search "from:kim@example.com is:unread"
+
+# 메일 조회
+gog gmail get <messageId>
+
+# 메일 전송
+gog gmail send --to <email> --subject "<subject>" --body "<body>"
+
+# 초안 작성
+gog gmail draft --to <email> --subject "<subject>" --body "<body>"
+
+# 메일 답장
+gog gmail reply <messageId> --body "<body>"
+```
+
+---
+
+## gog calendar
+
+```bash
+# 일정 조회 (기본: 오늘)
+gog calendar list
+gog calendar list --days 7
+
+# 일정 등록
+gog calendar create --title "<title>" --start "<datetime>" --end "<datetime>"
+# datetime 형식: 2026-03-25T14:00:00
+
+# 일정 수정
+gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<datetime>"
+```
+
+---
+
+## gog drive
+
+```bash
+# 파일 검색
+gog drive search "<query>"
+
+# 파일 업로드
+gog drive upload <file>
+
+# 파일 다운로드
+gog drive download <fileId>
+```
+
+========================================
+FILE: ./config/workspace-orchestrator/AGENTS.md
+========================================
+# AGENTS.md — orchestrator
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+
+## 역할
+
+Telegram으로 들어온 사용자 요청을 분석하고, 적절한 서브에이전트에 위임한다.
+직접 Google API나 gog 명령어를 실행하지 않는다. 모든 Google 작업은 서브에이전트를 통해서만 처리한다.
+
+## 위임 대상
+
+| 에이전트 ID | 담당 |
+|---|---|
+| `mail` | Gmail 조회, 검색, 초안, 전송 |
+| `calendar` | Google Calendar 조회, 등록, 수정, 삭제 |
+| `drive` | Google Drive/Docs/Sheets/Slides 조회, 생성, 편집 |
+
+## 위임 규칙
+
+- 요청이 메일에 관한 것이면 → `mail` 서브에이전트에 위임
+- 요청이 일정에 관한 것이면 → `calendar` 서브에이전트에 위임
+- 요청이 문서/파일에 관한 것이면 → `drive` 서브에이전트에 위임
+- 복합 요청(예: 메일 확인 + 일정 등록)이면 → 각 서브에이전트에 순서대로 위임 후 결과 종합
+- 위임 시 구체적인 작업 지시를 포함할 것 (예: "오늘 받은 메일 중 미읽은 것 5개 요약해줘")
+
+## 금지 사항
+
+- gog 명령어 직접 실행 금지
+- Google API 직접 호출 금지
+- 서브에이전트 결과를 수정하거나 임의로 재해석하지 말 것
+
+## 응답 규칙
+
+- 응답은 항상 한국어로 작성
+- 서브에이전트 결과를 받으면 불필요한 설명 없이 핵심만 요약해서 전달
+- 오류 발생 시 어느 서브에이전트에서 실패했는지 명시
+
+========================================
+FILE: ./config/workspace-orchestrator/HEARTBEAT.md
+========================================
+# HEARTBEAT.md — orchestrator
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+# 30분마다 실행되는 주기적 작업 지침
+
+## 실행 순서
+
+1. `mail` 서브에이전트에 미읽은 중요 메일 확인 요청
+   - 중요 메일(발신자가 알려진 사람 또는 제목에 긴급/중요/FWD 포함)이 있으면 제목·발신자·한 줄 요약을 Telegram으로 전송
+   - 없으면 넘어감
+
+2. `calendar` 서브에이전트에 오늘 남은 일정 확인 요청
+   - 남은 일정이 있으면 시간·제목 목록을 Telegram으로 전송
+   - 없으면 넘어감
+
+3. 위 두 항목 모두 해당 없으면 `HEARTBEAT_OK` 응답
+
+## 주의
+
+- 중요하지 않은 마케팅 메일, 뉴스레터는 요약하지 않는다
+- Telegram 메시지는 간결하게 유지한다
+
+========================================
+FILE: ./config/workspace-orchestrator/IDENTITY.md
+========================================
+# IDENTITY.md — orchestrator
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+
+역할: Telegram 메시지를 수신해 Gmail, Calendar, Drive 서브에이전트에 위임하고 결과를 종합해 전달하는 AI 업무 비서
+
+========================================
+FILE: ./config/workspace-orchestrator/SOUL.md
+========================================
+# SOUL.md — orchestrator
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+
+## 톤과 태도
+
+- 사무적이고 정확하게 말한다
+- 군더더기 없이 결과와 핵심만 전달한다
+- 요청을 완벽히 처리하는 데 집중한다 — 설명보다 실행 우선
+- 작업 완료 후 결과를 명확하고 간결하게 보고한다
+
+## 금지
+
+- 이모지 사용 금지
+- "네, 알겠습니다", "물론이죠" 같은 불필요한 확인 문구 금지
+- 같은 내용을 반복하거나 재확인하는 행동 금지
+- 필요 이상의 공감 표현이나 감정적 반응 금지
+
+========================================
+FILE: ./config/workspace-orchestrator/TOOLS.md
+========================================
+# TOOLS.md — orchestrator
+# ref: https://docs.openclaw.ai/tools/subagents
+
+## 사용 가능한 도구
+
+orchestrator는 gog 명령어를 직접 실행하지 않는다.
+Google 작업은 반드시 sessions_spawn으로 서브에이전트에 위임한다.
+
+## sessions_spawn
+
+서브에이전트를 호출하는 핵심 도구.
+
+```
+sessions_spawn(
+  task: "구체적인 작업 지시",
+  agentId: "mail" | "calendar" | "drive"
+)
+```
+
+- `task`: 서브에이전트에게 전달할 구체적인 작업 지시. 필요한 정보(날짜, 이메일 주소 등)를 모두 포함할 것
+- `agentId`: 위임 대상 에이전트 ID
+
+## 사용 가능한 서브에이전트
+
+| agentId | 역할 |
+|---|---|
+| `mail` | Gmail 전담 |
+| `calendar` | Google Calendar 전담 |
+| `drive` | Google Drive 전담 |
+
+## 위임 예시
+
+```
+# 메일 조회
+sessions_spawn(task="오늘 받은 미읽은 메일 5개 제목과 발신자 목록으로 알려줘", agentId="mail")
+
+# 일정 등록
+sessions_spawn(task="2026년 3월 25일 오후 2시에 '팀 회의' 1시간 일정 등록해줘", agentId="calendar")
+
+# 복합 작업 — 순서대로 호출
+sessions_spawn(task="김팀장에게서 온 최근 메일 요약해줘", agentId="mail")
+sessions_spawn(task="내일 일정 목록 알려줘", agentId="calendar")
+```
+
+========================================
+FILE: ./config/workspace-orchestrator/USER.md
+========================================
+# USER.md — orchestrator
+# ref: https://docs.openclaw.ai/concepts/agent-workspace
+# 이 파일은 setup-agent.sh에서 {{GOOGLE_ACCOUNT}}가 실제 값으로 치환된다.
+
+연동된 Google 계정: {{GOOGLE_ACCOUNT}}
+
+========================================
+FILE: ./config/workspace-orchestrator/skills/gog/SKILL.md
+========================================
+---
+name: gog
+description: Google Workspace CLI (Gmail, Calendar, Drive)
+---
+
+# gog — Google Workspace CLI
+# ref: https://github.com/steipete/gogcli
+
+## 인증
+
+`GOG_ACCESS_TOKEN` 환경변수로 인증한다. run.sh가 발급 및 자동 갱신을 담당한다.
+
+```bash
+export GOG_ACCESS_TOKEN=<access_token>
+```
+
+---
+
+## gog gmail
+
+```bash
+# 메일 검색
+gog gmail search "<query>"
+# 예: gog gmail search "from:kim@example.com is:unread"
+
+# 메일 조회
+gog gmail get <messageId>
+
+# 메일 전송
+gog gmail send --to <email> --subject "<subject>" --body "<body>"
+
+# 초안 작성
+gog gmail draft --to <email> --subject "<subject>" --body "<body>"
+
+# 메일 답장
+gog gmail reply <messageId> --body "<body>"
+```
+
+---
+
+## gog calendar
+
+```bash
+# 일정 조회 (기본: 오늘)
+gog calendar list
+gog calendar list --days 7
+
+# 일정 등록
+gog calendar create --title "<title>" --start "<datetime>" --end "<datetime>"
+# datetime 형식: 2026-03-25T14:00:00
+
+# 일정 수정
+gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<datetime>"
+```
+
+---
+
+## gog drive
+
+```bash
+# 파일 검색
+gog drive search "<query>"
+
+# 파일 업로드
+gog drive upload <file>
+
+# 파일 다운로드
+gog drive download <fileId>
+```
+
+========================================
+FILE: ./proxy.js
+========================================
+// proxy.js
+// 0.0.0.0:8080 → 127.0.0.1:18789 HTTP + WebSocket 프록시
+//
+// ref: https://nodejs.org/api/http.html
+// ref: https://nodejs.org/api/net.html
+// ref: spec/HANDOVER.md — WebSocket 터널 gcube 환경 검증 완료
+
+'use strict';
+
+const http = require('http');
+const net  = require('net');
+
+const UPSTREAM_HOST = '127.0.0.1';
+const UPSTREAM_PORT = 18789;
+const LISTEN_PORT   = 8080;
+const LISTEN_HOST   = '0.0.0.0';
+
+// ── HTTP 요청 프록시 ──────────────────────────────────────
+const server = http.createServer((req, res) => {
+  console.log(`[HTTP] ${req.method} ${req.url}`);
+
+  const options = {
+    hostname: UPSTREAM_HOST,
+    port:     UPSTREAM_PORT,
+    path:     req.url,
+    method:   req.method,
+    headers:  req.headers,
+  };
+
+  const proxy = http.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res, { end: true });
+  });
+
+  proxy.on('error', (err) => {
+    console.error(`[ERROR] HTTP proxy error: ${err.message}`);
+    if (!res.headersSent) res.writeHead(502);
+    res.end('Bad Gateway');
+  });
+
+  req.on('error', (err) => {
+    console.error(`[ERROR] Client request error: ${err.message}`);
+    proxy.destroy();
+  });
+
+  req.pipe(proxy, { end: true });
+});
+
+// ── WebSocket Upgrade 터널 ────────────────────────────────
+// gcube는 외부 HTTPS → 내부 HTTP로 전달 (x-forwarded-proto: http)
+// Upgrade 요청을 원본 그대로 TCP 터널로 upstream에 전달
+server.on('upgrade', (req, clientSocket, head) => {
+  console.log(`[WS] Upgrade: ${req.url}`);
+
+  const serverSocket = net.connect(UPSTREAM_PORT, UPSTREAM_HOST, () => {
+    // 원본 HTTP upgrade 요청 헤더를 그대로 upstream에 재전송
+    let raw = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
+    for (let i = 0; i < req.rawHeaders.length; i += 2) {
+      raw += `${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}\r\n`;
+    }
+    raw += '\r\n';
+    serverSocket.write(raw);
+
+    if (head && head.length > 0) serverSocket.write(head);
+
+    serverSocket.pipe(clientSocket, { end: true });
+    clientSocket.pipe(serverSocket, { end: true });
+  });
+
+  serverSocket.on('error', (err) => {
+    console.error(`[ERROR] WS server socket error: ${err.message}`);
+    clientSocket.destroy();
+  });
+
+  clientSocket.on('error', (err) => {
+    console.error(`[ERROR] WS client socket error: ${err.message}`);
+    serverSocket.destroy();
+  });
+});
+
+server.on('error', (err) => {
+  console.error(`[ERROR] Server error: ${err.message}`);
+  process.exit(1);
+});
+
+server.listen(LISTEN_PORT, LISTEN_HOST, () => {
+  console.log(`[proxy] ${LISTEN_HOST}:${LISTEN_PORT} → ${UPSTREAM_HOST}:${UPSTREAM_PORT}`);
+});
+
+========================================
+FILE: ./run.sh
+========================================
+#!/bin/bash
+# =============================================================
+# openclaw-ollama-dev / run.sh
+# 서비스 기동 스크립트 (Ollama + proxy.js + openclaw gateway)
+#
+# 사전 조건: setup.sh → setup-agent.sh 완료
+#
+# 참고 문서:
+#   OpenClaw     : https://docs.openclaw.ai
+#   gogcli       : https://github.com/steipete/gogcli
+#   Google OAuth : https://developers.google.com/identity/protocols/oauth2
+# =============================================================
+
+set -eo pipefail
+
+# ── 로그 함수 ──────────────────────────────────────────────
+BOLD_BLUE='\033[1;34m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+BOLD_GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD_RED='\033[1;31m'
+NC='\033[0m'
+
+log_start()  { echo -e "${BOLD_BLUE}[ START ]${NC} $1"; }
+log_doing()  { echo -e "${CYAN}[ DOING ]${NC} $1"; }
+log_ok()     { echo -e "${GREEN}[  OK   ]${NC} $1"; }
+log_warn()   { echo -e "${YELLOW}[ WARN  ]${NC} $1"; }
+log_error()  { echo -e "${RED}[ ERROR ]${NC} $1"; }
+log_stop()   { echo -e "${BOLD_RED}[ STOP  ]${NC} $1"; exit 1; }
+log_done()   { echo -e "${BOLD_GREEN}[ DONE  ]${NC} $1"; }
+log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OPENCLAW_DIR="$HOME/.openclaw"
+OLLAMA_LOG="$OPENCLAW_DIR/ollama.log"
+GATEWAY_LOG="$OPENCLAW_DIR/gateway.log"
+PROXY_LOG="$OPENCLAW_DIR/proxy.log"
+
+log_start "OpenClaw 서비스 기동"
+
+# ── .env 로드 ──────────────────────────────────────────────
+if [ ! -f "$OPENCLAW_DIR/.env" ]; then
+  log_stop "~/.openclaw/.env 없음. 먼저 setup.sh 를 실행해 주세요."
+fi
+set -a
+# shellcheck source=/dev/null
+source "$OPENCLAW_DIR/.env"
+set +a
+
+for VAR in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN OLLAMA_MODEL; do
+  [ -z "${!VAR}" ] && log_stop "$VAR 미설정. setup.sh 를 먼저 실행해 주세요."
+done
+
+log_ok "환경변수 로드 완료 / 모델: $OLLAMA_MODEL"
+
+# ── 1. 기존 프로세스 정리 ─────────────────────────────────
+log_doing "기존 프로세스 정리"
+
+# 프로세스명으로 종료
+pkill -f 'openclaw' 2>/dev/null || true
+pkill -f 'node.*proxy' 2>/dev/null || true
+pkill -f 'ollama serve' 2>/dev/null || true
+# 좀비 프로세스 무시하고 실제 프로세스만 대기
+sleep 1
+# 살아있는 프로세스가 있으면 추가 대기
+pgrep -f 'openclaw|node.*proxy|ollama serve' > /dev/null 2>&1 && sleep 2 || true
+
+# 포트 점유 프로세스 종료 (fuser 우선, 없으면 /proc/net/tcp 방식)
+kill_port() {
+  local port=$1
+  if command -v fuser &>/dev/null; then
+    fuser -k "${port}/tcp" 2>/dev/null || true
+  else
+    # /proc/net/tcp: 로컬 주소 컬럼(2번째)에서 포트 hex 검색 후 inode → pid 매핑
+    local hex_port
+    hex_port=$(printf '%04X' "$port")
+    local inodes
+    inodes=$(awk -v p=":${hex_port}" '$2 ~ p {print $10}' /proc/net/tcp /proc/net/tcp6 2>/dev/null)
+    for inode in $inodes; do
+      local pid
+      pid=$(find /proc -maxdepth 4 -name 'fd' -type d 2>/dev/null \
+            | xargs -I{} find {} -type l 2>/dev/null \
+            | xargs ls -la 2>/dev/null \
+            | grep "socket:\[${inode}\]" \
+            | awk -F'/' '{print $3}' | head -1)
+      [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+    done
+  fi
+}
+
+for PORT in 8080 18789 11434; do
+  kill_port "$PORT"
+done
+sleep 1
+
+log_ok "프로세스 정리 완료"
+
+# ── 2. Access Token 발급 ──────────────────────────────────
+log_doing "Google Access Token 발급"
+
+RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
+  -d "grant_type=refresh_token" \
+  -d "client_id=$GOOGLE_CLIENT_ID" \
+  -d "client_secret=$GOOGLE_CLIENT_SECRET" \
+  -d "refresh_token=$GOOGLE_REFRESH_TOKEN")
+
+ACCESS_TOKEN=$(echo "$RESPONSE" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print(d.get('access_token',''))" 2>/dev/null || true)
+
+if [ -z "$ACCESS_TOKEN" ]; then
+  ERROR_MSG=$(echo "$RESPONSE" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('error_description', d.get('error','')))" 2>/dev/null || echo "응답 파싱 실패")
+  log_error "Access Token 발급 실패: $ERROR_MSG"
+  log_stop "GOOGLE_REFRESH_TOKEN이 유효한지 확인하세요."
+fi
+
+export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
+log_ok "Access Token 발급 완료"
+
+# ── 3. 55분마다 자동 갱신 루프 ────────────────────────────
+token_refresh_loop() {
+  while true; do
+    sleep 3300
+
+    RETRY=0
+    NEW_TOKEN=""
+    while [ "$RETRY" -lt 3 ]; do
+      NEW_TOKEN=$(curl -s -X POST https://oauth2.googleapis.com/token \
+        -d "grant_type=refresh_token" \
+        -d "client_id=$GOOGLE_CLIENT_ID" \
+        -d "client_secret=$GOOGLE_CLIENT_SECRET" \
+        -d "refresh_token=$GOOGLE_REFRESH_TOKEN" | \
+        python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('access_token',''))" 2>/dev/null || true)
+
+      if [ -n "$NEW_TOKEN" ]; then
+        export GOG_ACCESS_TOKEN=$NEW_TOKEN
+        # .env 파일에도 갱신해 새 프로세스가 최신 토큰을 사용하도록 함
+        sed -i "s|^GOG_ACCESS_TOKEN=.*|GOG_ACCESS_TOKEN=${NEW_TOKEN}|" "$OPENCLAW_DIR/.env" 2>/dev/null || true
+        echo -e "${GREEN}[  OK   ]${NC} Access Token 갱신 완료"
+        break
+      fi
+
+      RETRY=$((RETRY + 1))
+      echo -e "${RED}[ ERROR ]${NC} Access Token 갱신 실패 (${RETRY}/3)"
+      [ "$RETRY" -lt 3 ] && sleep 10
+    done
+
+    if [ -z "$NEW_TOKEN" ]; then
+      echo -e "${YELLOW}[ WARN  ]${NC} Access Token 갱신 3회 실패 — 다음 주기까지 기존 토큰 유지"
+    fi
+  done
+}
+
+token_refresh_loop &
+log_ok "Access Token 자동 갱신 루프 시작 (55분 주기)"
+
+# ── 4. exec-approvals.json 설정 ───────────────────────────
+cat > ~/.openclaw/exec-approvals.json << 'EOF'
+{
+  "version": 1,
+  "defaults": {
+    "security": "full",
+    "ask": "off",
+    "askFallback": "full",
+    "autoAllowSkills": true
+  }
+}
+EOF
+log_ok "exec-approvals.json 설정 완료"
+
+# ── 5. Ollama 기동 ────────────────────────────────────────
+log_doing "Ollama 기동"
+
+ollama serve > "$OLLAMA_LOG" 2>&1 &
+
+# API 응답까지 대기 (최대 30초)
+READY=false
+for i in $(seq 1 30); do
+  if curl -sf http://127.0.0.1:11434/api/tags &>/dev/null; then
+    READY=true
+    break
+  fi
+  sleep 1
+done
+
+if [ "$READY" = false ]; then
+  log_error "Ollama 기동 타임아웃 (30초)"
+  log_stop "로그 확인: tail -f $OLLAMA_LOG"
+fi
+log_ok "Ollama 기동 완료 (PID: $(pgrep -x ollama | head -1))"
+
+# ── 6. proxy.js 기동 ──────────────────────────────────────
+log_doing "proxy.js 기동 (0.0.0.0:8080 → 127.0.0.1:18789)"
+
+node "$SCRIPT_DIR/proxy.js" > "$PROXY_LOG" 2>&1 &
+
+# 포트 8080 응답까지 대기 (최대 30초)
+READY=false
+for i in $(seq 1 30); do
+  if (echo >/dev/tcp/127.0.0.1/8080) 2>/dev/null; then
+    READY=true
+    break
+  fi
+  sleep 1
+done
+
+if [ "$READY" = false ]; then
+  log_error "proxy.js 기동 타임아웃 (30초)"
+  log_stop "로그 확인: tail -f $PROXY_LOG"
+fi
+log_ok "proxy.js 기동 완료 (포트 8080 응답 확인)"
+
+# ── 7. openclaw gateway 기동 ──────────────────────────────
+log_doing "openclaw gateway 기동"
+
+openclaw gateway > "$GATEWAY_LOG" 2>&1 &
+
+# 포트 18789 응답까지 대기 (최대 30초)
+READY=false
+for i in $(seq 1 30); do
+  if curl -sf http://127.0.0.1:18789/ &>/dev/null; then
+    READY=true
+    break
+  fi
+  sleep 1
+done
+
+if [ "$READY" = false ]; then
+  log_error "openclaw gateway 기동 타임아웃 (30초)"
+  log_stop "로그 확인: tail -f $GATEWAY_LOG"
+fi
+log_ok "openclaw gateway 기동 완료"
+
+# ── 8. 완료 메시지 ────────────────────────────────────────
+echo ""
+log_done "모든 서비스 기동 완료"
+echo ""
+echo -e "${BOLD_GREEN}  Telegram 봇에 메시지를 보내 서비스를 사용하세요.${NC}"
+echo ""
+echo "  gcube Control UI 접속:"
+echo "  1) gcube 대시보드에서 이 컨테이너의 서비스 URL 확인"
+echo "  2) URL 접속 후 Gateway Token 입력:"
+GATEWAY_TOKEN=$(python3 -c "import json; d=json.load(open('/root/.openclaw/openclaw.json')); print(d['gateway']['auth']['token'])" 2>/dev/null || echo "openclaw.json 확인 필요")
+echo "     $GATEWAY_TOKEN"
+echo "  3) 처음 접속 시 기기 승인 필요"
+echo "     - 대기 중인 기기 확인: openclaw devices list"
+echo "     - 승인: openclaw devices approve <requestId>"
+echo ""
+echo "  로그 확인:"
+echo "  tail -f $GATEWAY_LOG"
+echo "  tail -f $OLLAMA_LOG"
+echo "  tail -f $PROXY_LOG"
+echo ""
+echo "  서비스 종료:"
+echo "  pkill -f openclaw; pkill -f 'node.*proxy'; pkill -f 'ollama serve'"
+
+========================================
+FILE: ./setup-agent.sh
+========================================
+#!/bin/bash
+# =============================================================
+# openclaw-ollama-dev / setup-agent.sh
+# 에이전트 워크스페이스 구성 및 Google 연동 확인 스크립트
+#
+# 사전 조건: setup.sh 완료
+#
+# 참고 문서:
+#   OpenClaw  : https://docs.openclaw.ai
+#   gogcli    : https://github.com/steipete/gogcli
+#   Google OAuth: https://developers.google.com/identity/protocols/oauth2
+# =============================================================
+
+set -eo pipefail
+
+# ── 로그 함수 ──────────────────────────────────────────────
+BOLD_BLUE='\033[1;34m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+BOLD_GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD_RED='\033[1;31m'
+NC='\033[0m'
+
+log_start()  { echo -e "${BOLD_BLUE}[ START ]${NC} $1"; }
+log_doing()  { echo -e "${CYAN}[ DOING ]${NC} $1"; }
+log_ok()     { echo -e "${GREEN}[  OK   ]${NC} $1"; }
+log_warn()   { echo -e "${YELLOW}[ WARN  ]${NC} $1"; }
+log_error()  { echo -e "${RED}[ ERROR ]${NC} $1"; }
+log_stop()   { echo -e "${BOLD_RED}[ STOP  ]${NC} $1"; exit 1; }
+log_done()   { echo -e "${BOLD_GREEN}[ DONE  ]${NC} $1"; }
+log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OPENCLAW_DIR="$HOME/.openclaw"
+
+log_start "에이전트 워크스페이스 설정 시작"
+
+# ── 1. ~/.openclaw/.env 로드 ──────────────────────────────
+log_doing "~/.openclaw/.env 로드"
+
+if [ ! -f "$OPENCLAW_DIR/.env" ]; then
+  log_stop "~/.openclaw/.env 없음. 먼저 setup.sh 를 실행해 주세요."
+fi
+
+set -a
+# shellcheck source=/dev/null
+source "$OPENCLAW_DIR/.env"
+set +a
+
+if [ -z "$OLLAMA_MODEL" ]; then
+  log_stop "OLLAMA_MODEL 미설정. setup.sh 를 먼저 실행해 주세요."
+fi
+if [ -z "$OLLAMA_SUBAGENT_MODEL" ]; then
+  log_stop "OLLAMA_SUBAGENT_MODEL 미설정. setup.sh 를 먼저 실행해 주세요."
+fi
+
+log_ok "오케스트레이터: $OLLAMA_MODEL"
+log_ok "서브에이전트:   $OLLAMA_SUBAGENT_MODEL"
+
+# ── 2. 워크스페이스 파일 복사 ─────────────────────────────
+log_doing "워크스페이스 파일 복사"
+
+for AGENT in orchestrator mail calendar drive; do
+  SRC="$SCRIPT_DIR/config/workspace-${AGENT}"
+  DEST="$OPENCLAW_DIR/workspace-${AGENT}"
+
+  if [ -d "$SRC" ]; then
+    mkdir -p "$DEST"
+    cp -r "$SRC/." "$DEST/"
+    log_ok "  ${AGENT}: 복사 완료 → $DEST"
+  else
+    log_warn "  ${AGENT}: config/workspace-${AGENT}/ 없음 — 건너뜁니다."
+  fi
+done
+
+# ── 3. USER.md {{GOOGLE_ACCOUNT}} 치환 ───────────────────
+log_doing "USER.md Google 계정 주입"
+
+USER_MD="$OPENCLAW_DIR/workspace-orchestrator/USER.md"
+if [ -f "$USER_MD" ]; then
+  sed -i "s/{{GOOGLE_ACCOUNT}}/${GOOGLE_ACCOUNT:-}/g" "$USER_MD"
+  if [ -n "$GOOGLE_ACCOUNT" ]; then
+    log_ok "USER.md 치환 완료: $GOOGLE_ACCOUNT"
+  else
+    log_warn "GOOGLE_ACCOUNT 미설정 — USER.md의 계정 정보가 비어 있습니다."
+  fi
+else
+  log_warn "USER.md 없음: $USER_MD"
+fi
+
+# ── 4. Access Token 발급 ──────────────────────────────────
+log_doing "Google Access Token 발급"
+
+RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
+  -d "grant_type=refresh_token" \
+  -d "client_id=$GOOGLE_CLIENT_ID" \
+  -d "client_secret=$GOOGLE_CLIENT_SECRET" \
+  -d "refresh_token=$GOOGLE_REFRESH_TOKEN")
+
+ACCESS_TOKEN=$(echo "$RESPONSE" | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); print(d.get('access_token',''))" 2>/dev/null || true)
+
+if [ -z "$ACCESS_TOKEN" ]; then
+  ERROR_MSG=$(echo "$RESPONSE" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('error_description', d.get('error','알 수 없는 오류')))" 2>/dev/null || echo "응답 파싱 실패")
+  log_error "Access Token 발급 실패: $ERROR_MSG"
+  log_stop "Google OAuth 설정(.env의 GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN)을 확인하세요."
+fi
+
+export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
+log_ok "Access Token 발급 완료"
+
+# ── 5. gog 연동 확인 ──────────────────────────────────────
+log_doing "gog Gmail 연동 확인"
+
+if ! command -v gog &>/dev/null; then
+  log_stop "gog 명령어를 찾을 수 없습니다. setup.sh 를 먼저 실행해 주세요."
+fi
+
+if gog gmail search 'is:unread' --max 1 &>/dev/null; then
+  log_ok "gog Gmail 연동 정상"
+else
+  log_stop "gog Gmail 연동 실패. .env의 GOOGLE_REFRESH_TOKEN이 유효한지, OAuth Playground에서 gmail 스코프를 포함해서 발급했는지 확인하세요."
+fi
+
+# ── 6. openclaw.json 설정 확인 ────────────────────────────
+# gateway 기동은 run.sh에서만 담당 — 이 스크립트에서 기동하지 않음
+log_doing "openclaw.json 설정 확인"
+
+OPENCLAW_JSON="$OPENCLAW_DIR/openclaw.json"
+if [ ! -f "$OPENCLAW_JSON" ]; then
+  log_warn "openclaw.json 없음. setup.sh 를 먼저 실행해 주세요."
+else
+  python3 << PYEOF
+import json, sys
+
+with open("$OPENCLAW_JSON") as f:
+    c = json.load(f)
+
+ok = True
+
+# agents.list 확인
+agent_ids = [a["id"] for a in c.get("agents", {}).get("list", [])]
+required_agents = ["orchestrator", "mail", "calendar", "drive"]
+missing = [a for a in required_agents if a not in agent_ids]
+if missing:
+    print(f"\033[1;33m[ WARN  ]\033[0m agents.list 에 없는 에이전트: {missing}")
+    print(f"\033[1;33m[ WARN  ]\033[0m   → setup.sh 를 다시 실행하세요.")
+    ok = False
+else:
+    print(f"\033[0;32m[  OK   ]\033[0m agents.list: {required_agents} 모두 확인")
+
+# orchestrator subagents.allowAgents 확인
+orch = next((a for a in c.get("agents", {}).get("list", []) if a["id"] == "orchestrator"), None)
+if orch:
+    allow = sorted(orch.get("subagents", {}).get("allowAgents", []))
+    expected = sorted(["mail", "calendar", "drive"])
+    if allow != expected:
+        print(f"\033[1;33m[ WARN  ]\033[0m orchestrator.subagents.allowAgents 불일치: {allow}")
+        print(f"\033[1;33m[ WARN  ]\033[0m   → 기대값: {expected}")
+        ok = False
+    else:
+        print(f"\033[0;32m[  OK   ]\033[0m orchestrator.subagents.allowAgents: {allow}")
+
+# bindings 확인
+bindings = c.get("bindings", [])
+has_binding = any(
+    b.get("agentId") == "orchestrator" and
+    b.get("match", {}).get("channel") == "telegram"
+    for b in bindings
+)
+if not has_binding:
+    print(f"\033[1;33m[ WARN  ]\033[0m orchestrator → telegram 바인딩 없음")
+    print(f"\033[1;33m[ WARN  ]\033[0m   → setup.sh 를 다시 실행하세요.")
+    ok = False
+else:
+    print(f"\033[0;32m[  OK   ]\033[0m bindings: orchestrator → telegram 확인")
+
+# channels.telegram.botToken 확인
+bot_token = c.get("channels", {}).get("telegram", {}).get("botToken", "")
+if not bot_token:
+    print(f"\033[1;33m[ WARN  ]\033[0m channels.telegram.botToken 없음")
+    print(f"\033[1;33m[ WARN  ]\033[0m   → setup.sh 를 다시 실행하거나 TELEGRAM_BOT_TOKEN 확인")
+    ok = False
+else:
+    masked = bot_token[:6] + "****"
+    print(f"\033[0;32m[  OK   ]\033[0m channels.telegram.botToken: {masked}")
+
+if ok:
+    print(f"\033[1;32m[ DONE  ]\033[0m openclaw.json 설정 검증 완료")
+PYEOF
+fi
+
+# ── 7. 등록 결과 출력 ─────────────────────────────────────
+log_doing "에이전트 등록 결과 확인"
+
+echo ""
+openclaw agents list   2>/dev/null || log_warn "openclaw agents list 실패 — gateway가 실행 중이 아닙니다."
+echo ""
+openclaw agents bindings 2>/dev/null || log_warn "openclaw agents bindings 실패 — gateway가 실행 중이 아닙니다."
+
+# ── 완료 ──────────────────────────────────────────────────
+echo ""
+log_done "에이전트 설정 완료"
+log_next "다음 단계: bash run.sh"
+
+========================================
+FILE: ./setup.sh
+========================================
+#!/bin/bash
+# =============================================================
+# openclaw-ollama-dev / setup.sh
+# Ollama + gogcli + OpenClaw 설치 및 초기 설정 스크립트
+#
+# 참고 문서:
+#   OpenClaw  : https://docs.openclaw.ai
+#   gogcli    : https://github.com/steipete/gogcli
+#   Ollama    : https://ollama.ai
+#   NodeSource: https://github.com/nodesource/distributions
+#   Go        : https://go.dev/dl
+# =============================================================
+
+set -eo pipefail
+
+# ── 로그 함수 ──────────────────────────────────────────────
+BOLD_BLUE='\033[1;34m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+BOLD_GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD_RED='\033[1;31m'
+NC='\033[0m'
+
+log_start()  { echo -e "${BOLD_BLUE}[ START ]${NC} $1"; }
+log_doing()  { echo -e "${CYAN}[ DOING ]${NC} $1"; }
+log_ok()     { echo -e "${GREEN}[  OK   ]${NC} $1"; }
+log_warn()   { echo -e "${YELLOW}[ WARN  ]${NC} $1"; }
+log_error()  { echo -e "${RED}[ ERROR ]${NC} $1"; }
+log_stop()   { echo -e "${BOLD_RED}[ STOP  ]${NC} $1"; exit 1; }
+log_done()   { echo -e "${BOLD_GREEN}[ DONE  ]${NC} $1"; }
+log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OPENCLAW_DIR="$HOME/.openclaw"
+
+log_start "OpenClaw Ollama 설치 시작"
+
+# ── 1. .env 검증 ──────────────────────────────────────────
+log_doing "환경변수 확인"
+
+if [ -f "$SCRIPT_DIR/.env" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$SCRIPT_DIR/.env"
+  set +a
+  log_ok ".env 로드 완료"
+fi
+
+MISSING=()
+for VAR in TELEGRAM_BOT_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
+           GOOGLE_REFRESH_TOKEN OLLAMA_MODEL OLLAMA_SUBAGENT_MODEL OLLAMA_FALLBACK_MODEL; do
+  [ -z "${!VAR}" ] && MISSING+=("$VAR")
+done
+
+if [ ${#MISSING[@]} -gt 0 ]; then
+  log_error "미설정 환경변수:"
+  for V in "${MISSING[@]}"; do
+    echo "        - $V"
+  done
+  log_stop ".env 파일을 확인하고 모든 필수 변수를 설정하세요."
+fi
+
+log_ok "환경변수 확인 완료"
+log_ok "  오케스트레이터: $OLLAMA_MODEL"
+log_ok "  서브에이전트:   $OLLAMA_SUBAGENT_MODEL"
+log_ok "  Fallback:      $OLLAMA_FALLBACK_MODEL"
+
+# ── 2. Node.js 확인 ───────────────────────────────────────
+log_doing "Node.js 확인"
+
+NODE_OK=false
+if command -v node &>/dev/null; then
+  NODE_MAJOR=$(node -e "process.stdout.write(process.version.slice(1).split('.')[0])")
+  if [ "$NODE_MAJOR" -ge 22 ]; then
+    NODE_OK=true
+    log_ok "Node.js $(node --version) 확인됨"
+  else
+    log_warn "Node.js $(node --version) — 22 미만, 재설치합니다."
+  fi
+else
+  log_warn "Node.js 미설치"
+fi
+
+if [ "$NODE_OK" = false ]; then
+  log_doing "Node.js 22 설치 중..."
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  apt-get install -y nodejs
+  log_ok "Node.js $(node --version) 설치 완료"
+fi
+
+# ── 3. Ollama 설치 ────────────────────────────────────────
+log_doing "Ollama 확인"
+
+if ! command -v ollama &>/dev/null; then
+  log_doing "Ollama 설치 중..."
+  curl -fsSL https://ollama.ai/install.sh | sh
+  log_ok "Ollama 설치 완료"
+else
+  log_ok "Ollama 이미 설치됨: $(ollama --version 2>/dev/null | head -1)"
+fi
+
+# ── 4. gogcli 설치 ────────────────────────────────────────
+log_doing "gogcli 확인"
+
+if ! command -v gog &>/dev/null; then
+  # go.mod에서 요구 Go 버전 동적으로 읽기
+  log_doing "gogcli 요구 Go 버전 확인 중..."
+  GO_REQUIRED=$(curl -s https://raw.githubusercontent.com/steipete/gogcli/main/go.mod \
+    | grep '^go ' | awk '{print $2}')
+
+  [ -z "$GO_REQUIRED" ] && log_stop "gogcli go.mod에서 Go 버전을 읽지 못했습니다."
+  log_ok "gogcli 요구 Go 버전: $GO_REQUIRED"
+
+  # 공식 Go 바이너리 설치
+  log_doing "Go $GO_REQUIRED 설치 중..."
+  GO_TAR="go${GO_REQUIRED}.linux-amd64.tar.gz"
+  curl -fOL "https://go.dev/dl/${GO_TAR}" \
+    || log_stop "Go $GO_REQUIRED 다운로드 실패"
+  rm -rf /usr/local/go
+  tar -C /usr/local -xzf "$GO_TAR"
+  rm -f "$GO_TAR"
+  export PATH=$PATH:/usr/local/go/bin
+  log_ok "Go $(go version) 설치 완료"
+
+  # 빌드 의존성 및 gogcli 빌드
+  log_doing "빌드 의존성 설치 중..."
+  apt-get install -y make build-essential -qq
+
+  log_doing "gogcli 빌드 중..."
+  cd /tmp
+  rm -rf gogcli
+  git clone https://github.com/steipete/gogcli.git
+  cd gogcli
+  make || log_stop "gogcli make 실패"
+  cp bin/gog /usr/local/bin/gog
+  chmod +x /usr/local/bin/gog
+  cd "$SCRIPT_DIR"
+  log_ok "gogcli 설치 완료: $(gog --version)"
+else
+  log_ok "gogcli 이미 설치됨: $(gog --version)"
+fi
+
+# ── 5. OpenClaw 설치 ──────────────────────────────────────
+log_doing "OpenClaw 확인"
+
+if ! command -v openclaw &>/dev/null; then
+  log_doing "OpenClaw 설치 중..."
+  npm install -g openclaw || log_stop "OpenClaw 설치 실패"
+  log_ok "OpenClaw 설치 완료: $(openclaw --version)"
+else
+  log_ok "OpenClaw 이미 설치됨: $(openclaw --version)"
+fi
+
+# ── 6. openclaw.json 생성 ─────────────────────────────────
+# ref: https://docs.openclaw.ai
+log_doing "openclaw.json 생성 중..."
+
+mkdir -p "$OPENCLAW_DIR"
+GW_TOKEN=$(openssl rand -hex 24)
+
+cat > "$OPENCLAW_DIR/openclaw.json" << EOF
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "ollama": {
+        "baseUrl": "http://127.0.0.1:11434",
+        "apiKey": "ollama-local",
+        "api": "ollama",
+        "models": [
+          {
+            "id": "ollama/${OLLAMA_MODEL}",
+            "name": "${OLLAMA_MODEL}",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "ollama/${OLLAMA_SUBAGENT_MODEL}",
+            "name": "${OLLAMA_SUBAGENT_MODEL}",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          },
+          {
+            "id": "ollama/${OLLAMA_FALLBACK_MODEL}",
+            "name": "${OLLAMA_FALLBACK_MODEL}",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "subagents": {
+        "runTimeoutSeconds": 120
+      }
+    },
+    "list": [
+      {
+        "id": "orchestrator",
+        "workspace": "${OPENCLAW_DIR}/workspace-orchestrator",
+        "model": {
+          "primary": "ollama/${OLLAMA_MODEL}",
+          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+        },
+        "subagents": {
+          "allowAgents": ["mail", "calendar", "drive"]
+        }
+      },
+      {
+        "id": "mail",
+        "workspace": "${OPENCLAW_DIR}/workspace-mail",
+        "model": {
+          "primary": "ollama/${OLLAMA_SUBAGENT_MODEL}",
+          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+        }
+      },
+      {
+        "id": "calendar",
+        "workspace": "${OPENCLAW_DIR}/workspace-calendar",
+        "model": {
+          "primary": "ollama/${OLLAMA_SUBAGENT_MODEL}",
+          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+        }
+      },
+      {
+        "id": "drive",
+        "workspace": "${OPENCLAW_DIR}/workspace-drive",
+        "model": {
+          "primary": "ollama/${OLLAMA_SUBAGENT_MODEL}",
+          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+        }
+      }
+    ]
+  },
+  "bindings": [
+    { "agentId": "orchestrator", "match": { "channel": "telegram" } }
+  ],
+  "channels": {
+    "telegram": {
+      "botToken": "${TELEGRAM_BOT_TOKEN}",
+      "dmPolicy": "open",
+      "allowFrom": ["*"]
+    }
+  },
+  "env": {
+    "GOOGLE_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
+    "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}",
+    "GOOGLE_REFRESH_TOKEN": "${GOOGLE_REFRESH_TOKEN}"
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "trustedProxies": ["127.0.0.1"],
+    "controlUi": {
+      "dangerouslyAllowHostHeaderOriginFallback": true
+    },
+    "auth": {
+      "mode": "token",
+      "token": "${GW_TOKEN}"
+    }
+  }
+}
+EOF
+
+log_ok "openclaw.json 생성 완료: $OPENCLAW_DIR/openclaw.json"
+
+# ── 7. ~/.openclaw/.env 생성 ──────────────────────────────
+log_doing "~/.openclaw/.env 생성 중..."
+
+{
+  printf 'TELEGRAM_BOT_TOKEN=%s\n'    "${TELEGRAM_BOT_TOKEN}"
+  printf 'GOOGLE_CLIENT_ID=%s\n'      "${GOOGLE_CLIENT_ID}"
+  printf 'GOOGLE_CLIENT_SECRET=%s\n'  "${GOOGLE_CLIENT_SECRET}"
+  printf 'GOOGLE_REFRESH_TOKEN=%s\n'  "${GOOGLE_REFRESH_TOKEN}"
+  printf 'GOOGLE_ACCOUNT=%s\n'        "${GOOGLE_ACCOUNT:-}"
+  printf 'OLLAMA_MODEL=%s\n'          "${OLLAMA_MODEL}"
+  printf 'OLLAMA_SUBAGENT_MODEL=%s\n' "${OLLAMA_SUBAGENT_MODEL}"
+  printf 'OLLAMA_FALLBACK_MODEL=%s\n' "${OLLAMA_FALLBACK_MODEL}"
+  printf 'OLLAMA_API_KEY=%s\n'        "ollama-local"
+} > "$OPENCLAW_DIR/.env"
+chmod 600 "$OPENCLAW_DIR/.env"
+
+log_ok "~/.openclaw/.env 생성 완료 (chmod 600)"
+
+# ── 완료 ──────────────────────────────────────────────────
+echo ""
+log_done "설치 완료"
+log_next "다음 단계: bash setup-agent.sh"
+
+========================================
+FILE: ./spec/HANDOVER.md
+========================================
+# HANDOVER — 검증된 사항 기록
+
+Claude Code 세션 간 컨텍스트 유지를 위한 핸드오버 문서.
+실제 테스트를 통해 확인된 사항만 기록한다.
+
+---
+
+## 검증 완료 항목
+
+### proxy.js WebSocket 터널
+
+- gcube 환경에서 proxy.js WebSocket 터널 실제 테스트 완료
+- gcube는 외부 HTTPS → 내부 HTTP로 전달 (`x-forwarded-proto: http`)
+- WebSocket Upgrade 요청이 컨테이너까지 정상 전달됨을 확인
+- 구현: `http` 모듈로 일반 요청 프록시, `net` 모듈로 CONNECT 터널 처리
+
+### openclaw 페어링
+
+- `openclaw devices approve`로 원격 브라우저 페어링 성공 확인
+- gcube URL(배포마다 변경)로 Control UI 접근 후 페어링 정상 동작
+
+### GOG_ACCESS_TOKEN 인증 방식
+
+- gogcli v0.12.0 기준 `GOG_ACCESS_TOKEN` 환경변수가 공식 지원됨을 확인
+- Refresh Token → curl → Access Token 발급 방식 동작 확인
+- 55분 갱신 주기 정상 동작 확인
+
+### dangerouslyAllowHostHeaderOriginFallback
+
+- gcube URL이 배포마다 바뀌어 `allowedOrigins` 고정 불가
+- 개인 사용 환경이므로 `dangerouslyAllowHostHeaderOriginFallback: true` 허용
+- 보안 위험 인지 후 의도적으로 설정한 값임
+
+---
+
+## 미해결 / 주의 사항
+
+### OAuth Consent Screen — Testing 모드
+
+- 현재 Google Cloud Console에서 OAuth Consent Screen이 **Testing** 상태
+- Testing 모드에서는 Refresh Token이 **7일마다 만료**됨
+- 7일마다 재인증(새 Refresh Token 발급) 필요
+- 해결 방법: Google Cloud Console → OAuth Consent Screen → **Production** 전환
+  - Production 전환 시 Google 검수 필요 (개인 사용 앱은 보통 통과)
+
+---
+
+## 주요 설정값 요약
+
+| 항목 | 값 | 비고 |
+|---|---|---|
+| openclaw gateway 포트 | 18789 | loopback only |
+| proxy.js 포트 | 8080 | 0.0.0.0 바인딩 |
+| Access Token 갱신 주기 | 55분 | Google 토큰 1시간 만료 기준 |
+| 재시도 횟수 | 최대 3회 | 갱신 실패 시 |
+
+========================================
+FILE: ./spec/PRD.md
+========================================
+# PRD — openclaw-ollama-dev
+
+## 목표
+
+Telegram 하나로 Gmail, Google Calendar, Google Drive를 AI가 자동 처리하는 개인 업무 비서.
+API 비용 없이 로컬 LLM(Ollama)만으로 동작한다.
+
+---
+
+## 배포 환경
+
+- **플랫폼**: gcube GPU 클라우드 컨테이너
+- **외부 접근**: gcube가 부여하는 HTTPS URL (배포마다 변경됨) → 내부 포트 8080
+- **GPU**: Ollama 모델 추론에 활용
+
+---
+
+## 사용 흐름
+
+```
+git clone <repo>
+cp .env.example .env && vi .env   # 필수 환경변수 입력
+bash setup.sh                     # Ollama + OpenClaw + gogcli 설치, openclaw.json 생성
+bash setup-agent.sh               # 에이전트 워크스페이스 구성, Telegram 바인딩
+bash run.sh                       # Access Token 갱신 루프 + Ollama + proxy + gateway 기동
+```
+
+이후 Telegram 봇에 메시지를 보내면 AI가 자동 처리한다.
+
+---
+
+## 채널
+
+| 채널 | 상태 |
+|---|---|
+| Telegram | 현재 운영 중 |
+| Slack | 추후 추가 예정 |
+
+---
+
+## Google 서비스
+
+| 서비스 | 기능 |
+|---|---|
+| Gmail | 메일 조회, 검색, 초안 작성 |
+| Google Calendar | 일정 조회, 등록, 수정, 삭제 |
+| Google Drive / Docs / Sheets / Slides | 문서 조회, 생성, 편집 |
+
+---
+
+## 비기능 요구사항
+
+- 외부 API 비용 없음 (로컬 Ollama만 사용)
+- 단일 컨테이너에서 모든 서비스 실행
+- Google OAuth Refresh Token 기반 인증 (55분마다 자동 갱신)
+- 재시작 시 `bash run.sh` 한 번으로 복구 가능
+
+========================================
+FILE: ./spec/SPEC.md
+========================================
+# SPEC — openclaw-ollama-dev
+
+## 참고 공식 문서
+
+- openclaw: https://docs.openclaw.ai
+- gogcli: https://github.com/steipete/gogcli
+
+---
+
+## 기술 스택
+
+| 컴포넌트 | 역할 |
+|---|---|
+| OpenClaw | 멀티 에이전트 오케스트레이션 프레임워크 (npm 글로벌 패키지) |
+| Ollama | 로컬 LLM 서버 (http://127.0.0.1:11434) |
+| gogcli | Google API CLI 클라이언트 (GOG_ACCESS_TOKEN 방식) |
+| Node.js | proxy.js 실행 환경 (내장 모듈만 사용) |
+| Telegram Bot API | 사용자 인터페이스 채널 |
+
+---
+
+## 포트 구조
+
+```
+gcube 외부 HTTPS
+    ↓ (443 → 8080 포워딩)
+proxy.js (0.0.0.0:8080)
+    ↓ HTTP 프록시 + WebSocket 터널
+openclaw gateway (127.0.0.1:18789)
+    ↓
+에이전트 처리
+```
+
+- proxy.js는 node 내장 `http` + `net` 모듈만 사용 (npm install 불필요)
+- HTTP 요청과 WebSocket Upgrade 요청 모두 처리
+- openclaw gateway는 loopback(127.0.0.1)에만 바인딩
+
+---
+
+## openclaw.json gateway 설정
+
+```json
+"gateway": {
+  "port": 18789,
+  "mode": "local",
+  "bind": "loopback",
+  "trustedProxies": ["127.0.0.1"],
+  "controlUi": {
+    "dangerouslyAllowHostHeaderOriginFallback": true
+  }
+}
+```
+
+`dangerouslyAllowHostHeaderOriginFallback`: gcube URL이 배포마다 바뀌어 allowedOrigins 고정 불가.
+개인 사용 환경이므로 허용. (→ spec/HANDOVER.md 참조)
+
+---
+
+## 멀티 에이전트 구조
+
+```
+orchestrator (qwen3:32b)
+  ├─ mail      (qwen3:8b) → Gmail
+  ├─ calendar  (qwen3:8b) → Google Calendar
+  └─ drive     (qwen3:8b) → Google Drive/Docs/Sheets/Slides
+```
+
+- orchestrator가 Telegram 메시지 수신 → 분석 → 서브에이전트 위임
+- 서브에이전트는 `sessions_spawn` 도구로 호출됨
+- 서브에이전트끼리는 직접 통신하지 않음
+
+---
+
+## Google 인증 방식
+
+gogcli v0.12.0+ 공식 지원 방식: `GOG_ACCESS_TOKEN` 환경변수.
+
+```bash
+# Access Token 발급
+ACCESS_TOKEN=$(curl -s -X POST https://oauth2.googleapis.com/token \
+  -d "grant_type=refresh_token" \
+  -d "client_id=$GOOGLE_CLIENT_ID" \
+  -d "client_secret=$GOOGLE_CLIENT_SECRET" \
+  -d "refresh_token=$GOOGLE_REFRESH_TOKEN" | \
+  python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
+```
+
+- run.sh 기동 시 1회 발급, 이후 55분마다 백그라운드 루프에서 자동 갱신
+- 갱신 실패 시 최대 3회 재시도
+
+---
+
+## 워크스페이스 구조
+
+### orchestrator
+
+```
+~/.openclaw/workspace-orchestrator/
+  ├── AGENTS.md      ← 역할, 위임 로직, 보안 규칙
+  ├── SOUL.md        ← 페르소나 (클로)
+  ├── TOOLS.md       ← 사용 가능한 도구 목록
+  ├── IDENTITY.md    ← 자기소개 텍스트
+  ├── USER.md        ← 사용자 정보 (setup-agent.sh가 주입)
+  ├── HEARTBEAT.md   ← 상태 점검 루틴
+  └── skills/
+      └── gog/
+          └── SKILL.md  ← gogcli 사용법
+```
+
+### mail / calendar / drive (서브에이전트)
+
+```
+~/.openclaw/workspace-{agent}/
+  ├── AGENTS.md      ← 역할, API 지침, 보안 규칙
+  ├── TOOLS.md       ← 사용 가능한 도구 목록
+  └── skills/
+      └── gog/
+          └── SKILL.md  ← gogcli 사용법
+```
+
+서브에이전트는 AGENTS.md + TOOLS.md + skills/gog/SKILL.md 만 주입됨.
+
+---
+
+## 로그 스타일
+
+ANSI 색상만 사용. 이모지 없음.
+
+```bash
+BOLD='\033[1m'
+BOLD_BLUE='\033[1;34m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+BOLD_GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD_RED='\033[1;31m'
+NC='\033[0m'
+
+log_start()  { echo -e "${BOLD_BLUE}[ START ]${NC} $1"; }
+log_doing()  { echo -e "${CYAN}[ DOING ]${NC} $1"; }
+log_ok()     { echo -e "${GREEN}[  OK   ]${NC} $1"; }
+log_warn()   { echo -e "${YELLOW}[ WARN  ]${NC} $1"; }
+log_error()  { echo -e "${RED}[ ERROR ]${NC} $1"; }
+log_stop()   { echo -e "${BOLD_RED}[ STOP  ]${NC} $1"; exit 1; }
+log_done()   { echo -e "${BOLD_GREEN}[ DONE  ]${NC} $1"; }
+log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
+```
+
+---
+
+## 환경변수
+
+| 변수 | 설명 |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | BotFather에서 발급한 봇 토큰 |
+| `GOOGLE_CLIENT_ID` | Google Cloud Console OAuth 2.0 클라이언트 ID |
+| `GOOGLE_CLIENT_SECRET` | Google Cloud Console OAuth 2.0 클라이언트 시크릿 |
+| `GOOGLE_REFRESH_TOKEN` | Google OAuth Refresh Token |
+| `GOOGLE_ACCOUNT` | Google 계정 이메일 (gogcli 연동용) |
+| `OLLAMA_MODEL` | 오케스트레이터용 모델 (예: `qwen3:32b-q4_K_M`) |
+| `OLLAMA_SUBAGENT_MODEL` | 서브에이전트용 모델 (예: `qwen3:8b`) |
+| `OLLAMA_FALLBACK_MODEL` | 대체 모델 (예: `glm-4.7-flash`) |
+

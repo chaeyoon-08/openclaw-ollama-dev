@@ -36,3 +36,15 @@ gog gmail draft --to <email> --subject "<subject>" --body "<body>"
 ```bash
 gog gmail reply <messageId> --body "<body>"
 ```
+
+### 메일 라벨/보관
+```bash
+gog gmail label <messageId> <labelName>
+# 예: gog gmail label abc123 IMPORTANT
+
+gog gmail archive <messageId>
+# 메일을 받은편지함에서 보관처리
+
+gog gmail trash <messageId>
+# 메일을 휴지통으로 이동
+```

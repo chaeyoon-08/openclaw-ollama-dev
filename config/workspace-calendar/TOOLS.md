@@ -26,3 +26,9 @@ gog calendar create --title "<title>" --start "<datetime>" --end "<datetime>"
 ```bash
 gog calendar update <eventId> --title "<title>" --start "<datetime>" --end "<datetime>"
 ```
+
+### 일정 삭제
+```bash
+gog calendar delete <eventId>
+# 예: gog calendar delete abc123
+```

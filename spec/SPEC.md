@@ -16,6 +16,25 @@
 | gogcli | Google API CLI 클라이언트 (GOG_ACCESS_TOKEN 방식) |
 | Node.js | proxy.js 실행 환경 (내장 모듈만 사용) |
 | Telegram Bot API | 사용자 인터페이스 채널 |
+| Chromium | 브라우저 자동화 (헤드리스) |
+
+---
+
+## openclaw.json plugins 설정
+
+```json
+"plugins": {
+  "entries": {
+    "telegram": { "enabled": true },
+    "web-search": { "enabled": true },
+    "browser": { "enabled": true, "config": { "headless": true } }
+  }
+}
+```
+
+- `telegram`: Telegram Bot API 채널 플러그인
+- `web-search`: orchestrator가 웹 검색을 직접 수행할 때 사용
+- `browser`: Chromium 헤드리스 브라우저 자동화
 
 ---
 
@@ -103,10 +122,10 @@ export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
   ├── IDENTITY.md    ← 자기소개 텍스트
   ├── USER.md        ← 사용자 정보 (setup-agent.sh가 주입)
   ├── HEARTBEAT.md   ← 상태 점검 루틴
-  └── skills/
-      └── gog/
-          └── SKILL.md  ← gogcli 사용법
+  └── MEMORY.md      ← 에이전트 기억 (Drive에 30분마다 자동 백업)
 ```
+
+orchestrator는 gog 명령어를 직접 실행하지 않으므로 `skills/gog/` 디렉토리가 없다.
 
 ### mail / calendar / drive (서브에이전트)
 
@@ -116,10 +135,14 @@ export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
   ├── TOOLS.md       ← 사용 가능한 도구 목록
   └── skills/
       └── gog/
-          └── SKILL.md  ← gogcli 사용법
+          └── SKILL.md  ← 담당 서비스 명령어만 포함
 ```
 
 서브에이전트는 AGENTS.md + TOOLS.md + skills/gog/SKILL.md 만 주입됨.
+SKILL.md는 각 에이전트 담당 서비스 명령어만 포함한다:
+- `workspace-mail`: `gog gmail` 명령어만
+- `workspace-calendar`: `gog calendar` 명령어만
+- `workspace-drive`: `gog drive` 명령어만
 
 ---
 
@@ -159,6 +182,9 @@ log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
 | `GOOGLE_CLIENT_SECRET` | Google Cloud Console OAuth 2.0 클라이언트 시크릿 |
 | `GOOGLE_REFRESH_TOKEN` | Google OAuth Refresh Token |
 | `GOOGLE_ACCOUNT` | Google 계정 이메일 (gogcli 연동용) |
-| `OLLAMA_MODEL` | 오케스트레이터용 모델 (예: `qwen3:32b-q4_K_M`) |
-| `OLLAMA_SUBAGENT_MODEL` | 서브에이전트용 모델 (예: `qwen3:8b`) |
-| `OLLAMA_FALLBACK_MODEL` | 대체 모델 (예: `glm-4.7-flash`) |
+| `ORCHESTRATOR_MODEL` | orchestrator용 모델 — 계획·판단·종합 담당 (예: `qwen3:32b`) |
+| `MAIL_MODEL` | mail 에이전트용 모델 — Gmail 전담 (예: `qwen3:8b`) |
+| `CALENDAR_MODEL` | calendar 에이전트용 모델 — Google Calendar 전담 (예: `qwen3:8b`) |
+| `DRIVE_MODEL` | drive 에이전트용 모델 — Google Drive 전담 (예: `qwen3:8b`) |
+| `FALLBACK_MODEL` | 대체 모델 — 위 모델 실패 시 사용 (예: `qwen3:4b`) |
+| `DRIVE_MEMORY_FOLDER` | MEMORY.md 백업 Google Drive 폴더명 (기본값: `openclaw-memory`) |

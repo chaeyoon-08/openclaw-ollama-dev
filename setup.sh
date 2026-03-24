@@ -50,7 +50,8 @@ fi
 
 MISSING=()
 for VAR in TELEGRAM_BOT_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
-           GOOGLE_REFRESH_TOKEN OLLAMA_MODEL OLLAMA_SUBAGENT_MODEL OLLAMA_FALLBACK_MODEL; do
+           GOOGLE_REFRESH_TOKEN ORCHESTRATOR_MODEL MAIL_MODEL CALENDAR_MODEL \
+           DRIVE_MODEL FALLBACK_MODEL; do
   [ -z "${!VAR}" ] && MISSING+=("$VAR")
 done
 
@@ -63,9 +64,11 @@ if [ ${#MISSING[@]} -gt 0 ]; then
 fi
 
 log_ok "환경변수 확인 완료"
-log_ok "  오케스트레이터: $OLLAMA_MODEL"
-log_ok "  서브에이전트:   $OLLAMA_SUBAGENT_MODEL"
-log_ok "  Fallback:      $OLLAMA_FALLBACK_MODEL"
+log_ok "  orchestrator: $ORCHESTRATOR_MODEL"
+log_ok "  mail:         $MAIL_MODEL"
+log_ok "  calendar:     $CALENDAR_MODEL"
+log_ok "  drive:        $DRIVE_MODEL"
+log_ok "  fallback:     $FALLBACK_MODEL"
 
 # ── 2. Node.js 확인 ───────────────────────────────────────
 log_doing "Node.js 확인"
@@ -99,6 +102,66 @@ if ! command -v ollama &>/dev/null; then
   log_ok "Ollama 설치 완료"
 else
   log_ok "Ollama 이미 설치됨: $(ollama --version 2>/dev/null | head -1)"
+fi
+
+# ── 3-1. Ollama 모델 pull ─────────────────────────────────
+log_doing "Ollama 모델 pull 확인"
+
+# ollama serve가 실행 중인지 확인, 아니면 백그라운드로 기동
+OLLAMA_STARTED=false
+if ! curl -s http://127.0.0.1:11434/api/tags &>/dev/null; then
+  log_doing "Ollama 서버 기동 중 (모델 pull용)..."
+  ollama serve &>/dev/null &
+  OLLAMA_PID=$!
+  OLLAMA_STARTED=true
+  # 서버 준비 대기 (최대 15초)
+  for i in $(seq 1 15); do
+    curl -s http://127.0.0.1:11434/api/tags &>/dev/null && break
+    sleep 1
+  done
+  if ! curl -s http://127.0.0.1:11434/api/tags &>/dev/null; then
+    log_stop "Ollama 서버 기동 실패"
+  fi
+  log_ok "Ollama 서버 기동 완료 (PID: $OLLAMA_PID)"
+fi
+
+pull_model() {
+  local MODEL="$1"
+  if ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$MODEL"; then
+    log_ok "모델 이미 존재: $MODEL (건너뜀)"
+  else
+    log_doing "모델 pull 중: $MODEL"
+    ollama pull "$MODEL" || log_stop "모델 pull 실패: $MODEL"
+    log_ok "모델 pull 완료: $MODEL"
+  fi
+}
+
+_PULLED_MODELS=()
+pull_model_once() {
+  local MODEL="$1"
+  local SKIP=false
+  for P in "${_PULLED_MODELS[@]:-}"; do
+    [ "$P" = "$MODEL" ] && SKIP=true && break
+  done
+  if [ "$SKIP" = true ]; then
+    log_ok "모델 중복 건너뜀: $MODEL"
+    return
+  fi
+  _PULLED_MODELS+=("$MODEL")
+  pull_model "$MODEL"
+}
+
+pull_model_once "${ORCHESTRATOR_MODEL}"
+pull_model_once "${MAIL_MODEL}"
+pull_model_once "${CALENDAR_MODEL}"
+pull_model_once "${DRIVE_MODEL}"
+pull_model_once "${FALLBACK_MODEL}"
+
+if [ "$OLLAMA_STARTED" = true ]; then
+  log_doing "Ollama 서버 종료 중..."
+  kill "$OLLAMA_PID" 2>/dev/null || true
+  wait "$OLLAMA_PID" 2>/dev/null || true
+  log_ok "Ollama 서버 종료 완료"
 fi
 
 # ── 4. gogcli 설치 ────────────────────────────────────────
@@ -142,6 +205,23 @@ else
   log_ok "gogcli 이미 설치됨: $(gog --version)"
 fi
 
+# ── 4-1. Chromium 헤드리스 설치 ──────────────────────────
+log_doing "Chromium 확인"
+
+if ! command -v chromium-browser &>/dev/null && ! command -v chromium &>/dev/null; then
+  log_doing "Chromium 설치 중..."
+  if apt-get install -y chromium-browser -qq 2>/dev/null; then
+    log_ok "Chromium 설치 완료: $(chromium-browser --version 2>/dev/null | head -1)"
+  elif apt-get install -y chromium -qq 2>/dev/null; then
+    log_ok "Chromium 설치 완료: $(chromium --version 2>/dev/null | head -1)"
+  else
+    log_stop "Chromium 설치 실패"
+  fi
+else
+  CHROMIUM_BIN=$(command -v chromium-browser 2>/dev/null || command -v chromium)
+  log_ok "Chromium 이미 설치됨: $($CHROMIUM_BIN --version 2>/dev/null | head -1)"
+fi
+
 # ── 5. OpenClaw 설치 ──────────────────────────────────────
 log_doing "OpenClaw 확인"
 
@@ -160,6 +240,29 @@ log_doing "openclaw.json 생성 중..."
 mkdir -p "$OPENCLAW_DIR"
 GW_TOKEN=$(openssl rand -hex 24)
 
+# 중복 제거된 모델 JSON 배열 생성
+_SEEN_MODELS=()
+MODELS_JSON=""
+_add_model_json() {
+  local M="$1"
+  local SKIP=false
+  for S in "${_SEEN_MODELS[@]:-}"; do [ "$S" = "$M" ] && SKIP=true && break; done
+  [ "$SKIP" = true ] && return
+  _SEEN_MODELS+=("$M")
+  local ENTRY
+  ENTRY=$(printf '          {\n            "id": "%s",\n            "name": "%s",\n            "contextWindow": 32768,\n            "maxTokens": 8192,\n            "reasoning": false,\n            "input": ["text"],\n            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }\n          }' "$M" "$M")
+  if [ -n "$MODELS_JSON" ]; then
+    MODELS_JSON="${MODELS_JSON},"$'\n'"${ENTRY}"
+  else
+    MODELS_JSON="${ENTRY}"
+  fi
+}
+_add_model_json "${ORCHESTRATOR_MODEL}"
+_add_model_json "${MAIL_MODEL}"
+_add_model_json "${CALENDAR_MODEL}"
+_add_model_json "${DRIVE_MODEL}"
+_add_model_json "${FALLBACK_MODEL}"
+
 cat > "$OPENCLAW_DIR/openclaw.json" << EOF
 {
   "models": {
@@ -170,27 +273,7 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
         "apiKey": "ollama-local",
         "api": "ollama",
         "models": [
-          {
-            "id": "ollama/${OLLAMA_MODEL}",
-            "name": "${OLLAMA_MODEL}",
-            "reasoning": false,
-            "input": ["text"],
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "ollama/${OLLAMA_SUBAGENT_MODEL}",
-            "name": "${OLLAMA_SUBAGENT_MODEL}",
-            "reasoning": false,
-            "input": ["text"],
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          },
-          {
-            "id": "ollama/${OLLAMA_FALLBACK_MODEL}",
-            "name": "${OLLAMA_FALLBACK_MODEL}",
-            "reasoning": false,
-            "input": ["text"],
-            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-          }
+${MODELS_JSON}
         ]
       }
     }
@@ -209,8 +292,8 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
         "id": "orchestrator",
         "workspace": "${OPENCLAW_DIR}/workspace-orchestrator",
         "model": {
-          "primary": "ollama/${OLLAMA_MODEL}",
-          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+          "primary": "ollama/${ORCHESTRATOR_MODEL}",
+          "fallbacks": ["ollama/${FALLBACK_MODEL}"]
         },
         "subagents": {
           "allowAgents": ["mail", "calendar", "drive"]
@@ -220,24 +303,24 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
         "id": "mail",
         "workspace": "${OPENCLAW_DIR}/workspace-mail",
         "model": {
-          "primary": "ollama/${OLLAMA_SUBAGENT_MODEL}",
-          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+          "primary": "ollama/${MAIL_MODEL}",
+          "fallbacks": ["ollama/${FALLBACK_MODEL}"]
         }
       },
       {
         "id": "calendar",
         "workspace": "${OPENCLAW_DIR}/workspace-calendar",
         "model": {
-          "primary": "ollama/${OLLAMA_SUBAGENT_MODEL}",
-          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+          "primary": "ollama/${CALENDAR_MODEL}",
+          "fallbacks": ["ollama/${FALLBACK_MODEL}"]
         }
       },
       {
         "id": "drive",
         "workspace": "${OPENCLAW_DIR}/workspace-drive",
         "model": {
-          "primary": "ollama/${OLLAMA_SUBAGENT_MODEL}",
-          "fallbacks": ["ollama/${OLLAMA_FALLBACK_MODEL}"]
+          "primary": "ollama/${DRIVE_MODEL}",
+          "fallbacks": ["ollama/${FALLBACK_MODEL}"]
         }
       }
     ]
@@ -256,6 +339,22 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
     "GOOGLE_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
     "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}",
     "GOOGLE_REFRESH_TOKEN": "${GOOGLE_REFRESH_TOKEN}"
+  },
+  "plugins": {
+    "entries": {
+      "telegram": {
+        "enabled": true
+      },
+      "web-search": {
+        "enabled": true
+      },
+      "browser": {
+        "enabled": true,
+        "config": {
+          "headless": true
+        }
+      }
+    }
   },
   "gateway": {
     "port": 18789,
@@ -284,10 +383,13 @@ log_doing "~/.openclaw/.env 생성 중..."
   printf 'GOOGLE_CLIENT_SECRET=%s\n'  "${GOOGLE_CLIENT_SECRET}"
   printf 'GOOGLE_REFRESH_TOKEN=%s\n'  "${GOOGLE_REFRESH_TOKEN}"
   printf 'GOOGLE_ACCOUNT=%s\n'        "${GOOGLE_ACCOUNT:-}"
-  printf 'OLLAMA_MODEL=%s\n'          "${OLLAMA_MODEL}"
-  printf 'OLLAMA_SUBAGENT_MODEL=%s\n' "${OLLAMA_SUBAGENT_MODEL}"
-  printf 'OLLAMA_FALLBACK_MODEL=%s\n' "${OLLAMA_FALLBACK_MODEL}"
+  printf 'ORCHESTRATOR_MODEL=%s\n'    "${ORCHESTRATOR_MODEL}"
+  printf 'MAIL_MODEL=%s\n'            "${MAIL_MODEL}"
+  printf 'CALENDAR_MODEL=%s\n'        "${CALENDAR_MODEL}"
+  printf 'DRIVE_MODEL=%s\n'           "${DRIVE_MODEL}"
+  printf 'FALLBACK_MODEL=%s\n'        "${FALLBACK_MODEL}"
   printf 'OLLAMA_API_KEY=%s\n'        "ollama-local"
+  printf 'DRIVE_MEMORY_FOLDER=%s\n'   "${DRIVE_MEMORY_FOLDER:-openclaw-memory}"
 } > "$OPENCLAW_DIR/.env"
 chmod 600 "$OPENCLAW_DIR/.env"
 

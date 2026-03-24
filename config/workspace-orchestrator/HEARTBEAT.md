@@ -14,6 +14,16 @@
 
 3. 위 두 항목 모두 해당 없으면 `HEARTBEAT_OK` 응답
 
+## MEMORY.md 백업 (30분마다, 위 작업과 동일 주기)
+
+`drive` 서브에이전트에 아래 작업 요청:
+- `~/.openclaw/workspace-orchestrator/MEMORY.md` 파일이 존재하는지 확인
+- 존재하면: `DRIVE_MEMORY_FOLDER` 환경변수(기본값: `openclaw-memory`) 폴더에
+  `MEMORY.md` 파일명으로 업로드 (덮어쓰기)
+- 폴더가 없으면 먼저 생성
+- 성공/실패 여부를 HEARTBEAT 로그에 기록
+- 파일이 없으면 건너뜀
+
 ## 주의
 
 - 중요하지 않은 마케팅 메일, 뉴스레터는 요약하지 않는다
