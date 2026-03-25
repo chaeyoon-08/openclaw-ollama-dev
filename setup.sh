@@ -295,7 +295,6 @@ ${MODELS_JSON}
     "telegram": {
       "botToken": "${TELEGRAM_BOT_TOKEN}",
       "dmPolicy": "open",
-      "dmScope": "per-channel-peer",
       "allowFrom": ["*"]
     }
   },
@@ -305,7 +304,6 @@ ${MODELS_JSON}
   },
   "tools": {
     "exec": {
-      "enabled": true,
       "host": "gateway"
     }
   },

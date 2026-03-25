@@ -248,8 +248,28 @@ for i in $(seq 1 30); do
 done
 
 if [ "$READY" = false ]; then
-  log_error "openclaw gateway 기동 타임아웃 (30초)"
-  log_stop "로그 확인: tail -f $GATEWAY_LOG"
+  log_warn "gateway 기동 실패 — doctor --fix 실행 중..."
+  openclaw doctor --fix 2>&1 | tee -a "$GATEWAY_LOG" || true
+  sleep 5
+
+  # gateway 재시도
+  pkill -f 'openclaw gateway' 2>/dev/null || true
+  sleep 1
+  openclaw gateway >> "$GATEWAY_LOG" 2>&1 &
+
+  READY=false
+  for i in $(seq 1 30); do
+    if curl -sf http://127.0.0.1:18789/ &>/dev/null; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$READY" = false ]; then
+    log_error "openclaw gateway 재기동 타임아웃 (30초)"
+    log_stop "로그 확인: tail -f $GATEWAY_LOG"
+  fi
 fi
 log_ok "openclaw gateway 기동 완료"
 
