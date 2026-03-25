@@ -297,13 +297,36 @@ except:
     sys.exit(1)
 " 2>/dev/null)
       if [ -n "$ACCESS_TOKEN" ] && [ -n "$ACCOUNT" ]; then
-        GOG_ACCESS_TOKEN="$ACCESS_TOKEN" \
-        GOG_ACCOUNT="$ACCOUNT" \
-        gog drive upload "$MEMORY_FILE" \
-          --folder "${DRIVE_MEMORY_FOLDER:-openclaw-memory}" \
-          > /dev/null 2>&1 \
-          && echo -e "${GREEN}[  OK   ]${NC} MEMORY.md 백업 완료" \
-          || echo -e "${YELLOW}[ WARN  ]${NC} MEMORY.md 백업 실패 — 다음 주기에 재시도"
+        FOLDER_NAME="${DRIVE_MEMORY_FOLDER:-openclaw-memory}"
+        FOLDER_ID=$(GOG_ACCESS_TOKEN="$ACCESS_TOKEN" GOG_ACCOUNT="$ACCOUNT" \
+          gog drive search "$FOLDER_NAME" -j 2>/dev/null | python3 -c "
+import json,sys
+try:
+    files = json.load(sys.stdin).get('files', [])
+    folders = [f for f in files if f.get('mimeType') == 'application/vnd.google-apps.folder']
+    print(folders[0]['id'] if folders else '')
+except:
+    print('')
+")
+        if [ -z "$FOLDER_ID" ]; then
+          FOLDER_ID=$(GOG_ACCESS_TOKEN="$ACCESS_TOKEN" GOG_ACCOUNT="$ACCOUNT" \
+            gog drive mkdir "$FOLDER_NAME" -j 2>/dev/null | python3 -c "
+import json,sys
+try:
+    print(json.load(sys.stdin)['folder']['id'])
+except:
+    print('')
+")
+        fi
+        if [ -n "$FOLDER_ID" ]; then
+          GOG_ACCESS_TOKEN="$ACCESS_TOKEN" GOG_ACCOUNT="$ACCOUNT" \
+            gog drive upload "$MEMORY_FILE" --parent "$FOLDER_ID" \
+            > /dev/null 2>&1 \
+            && log_ok "MEMORY.md 백업 완료" \
+            || log_warn "MEMORY.md 백업 실패 — 다음 주기에 재시도"
+        else
+          log_warn "MEMORY.md 백업 실패 — 폴더 생성 오류"
+        fi
       fi
     fi
   done
