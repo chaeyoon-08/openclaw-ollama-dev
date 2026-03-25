@@ -273,7 +273,44 @@ if [ "$READY" = false ]; then
 fi
 log_ok "openclaw gateway 기동 완료"
 
-# ── 8. 완료 메시지 ────────────────────────────────────────
+# ── 8. MEMORY.md 자동 백업 ────────────────────────────────
+# MEMORY.md 자동 백업 (30분 주기, 에이전트와 독립적으로 동작)
+(
+  while true; do
+    sleep 1800
+    MEMORY_FILE="$HOME/.openclaw/workspace-orchestrator/MEMORY.md"
+    if [ -f "$MEMORY_FILE" ]; then
+      ACCESS_TOKEN=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('/root/.openclaw/openclaw.json'))
+    print(d['env']['GOG_ACCESS_TOKEN'])
+except:
+    sys.exit(1)
+" 2>/dev/null)
+      ACCOUNT=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('/root/.openclaw/openclaw.json'))
+    print(d['env']['GOG_ACCOUNT'])
+except:
+    sys.exit(1)
+" 2>/dev/null)
+      if [ -n "$ACCESS_TOKEN" ] && [ -n "$ACCOUNT" ]; then
+        GOG_ACCESS_TOKEN="$ACCESS_TOKEN" \
+        GOG_ACCOUNT="$ACCOUNT" \
+        gog drive upload "$MEMORY_FILE" \
+          --folder "${DRIVE_MEMORY_FOLDER:-openclaw-memory}" \
+          > /dev/null 2>&1 \
+          && echo -e "${GREEN}[  OK   ]${NC} MEMORY.md 백업 완료" \
+          || echo -e "${YELLOW}[ WARN  ]${NC} MEMORY.md 백업 실패 — 다음 주기에 재시도"
+      fi
+    fi
+  done
+) &
+log_ok "MEMORY.md 자동 백업 시작 (30분 주기)"
+
+# ── 9. 완료 메시지 ────────────────────────────────────────
 echo ""
 log_done "모든 서비스 기동 완료"
 echo ""
