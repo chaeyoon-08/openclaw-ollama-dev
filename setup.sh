@@ -295,7 +295,18 @@ ${MODELS_JSON}
     "telegram": {
       "botToken": "${TELEGRAM_BOT_TOKEN}",
       "dmPolicy": "open",
-      "allowFrom": ["*"]
+      "allowFrom": ["*"],
+      "retry": {
+        "attempts": 5,
+        "minDelayMs": 1000,
+        "maxDelayMs": 30000,
+        "jitter": 0.1
+      }
+    }
+  },
+  "session": {
+    "reset": {
+      "mode": "never"
     }
   },
   "env": {
