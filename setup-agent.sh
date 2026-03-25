@@ -49,33 +49,28 @@ set -a
 source "$OPENCLAW_DIR/.env"
 set +a
 
-for _VAR in ORCHESTRATOR_MODEL MAIL_MODEL CALENDAR_MODEL DRIVE_MODEL FALLBACK_MODEL; do
+for _VAR in ORCHESTRATOR_MODEL FALLBACK_MODEL; do
   if [ -z "${!_VAR}" ]; then
     log_stop "${_VAR} 미설정. setup.sh 를 먼저 실행해 주세요."
   fi
 done
 
 log_ok "orchestrator: $ORCHESTRATOR_MODEL"
-log_ok "mail:         $MAIL_MODEL"
-log_ok "calendar:     $CALENDAR_MODEL"
-log_ok "drive:        $DRIVE_MODEL"
 log_ok "fallback:     $FALLBACK_MODEL"
 
 # ── 2. 워크스페이스 파일 복사 ─────────────────────────────
 log_doing "워크스페이스 파일 복사"
 
-for AGENT in orchestrator mail calendar drive; do
-  SRC="$SCRIPT_DIR/config/workspace-${AGENT}"
-  DEST="$OPENCLAW_DIR/workspace-${AGENT}"
+SRC="$SCRIPT_DIR/config/workspace-orchestrator"
+DEST="$OPENCLAW_DIR/workspace-orchestrator"
 
-  if [ -d "$SRC" ]; then
-    mkdir -p "$DEST"
-    cp -r "$SRC/." "$DEST/"
-    log_ok "  ${AGENT}: 복사 완료 → $DEST"
-  else
-    log_warn "  ${AGENT}: config/workspace-${AGENT}/ 없음 — 건너뜁니다."
-  fi
-done
+if [ -d "$SRC" ]; then
+  mkdir -p "$DEST"
+  cp -r "$SRC/." "$DEST/"
+  log_ok "  orchestrator: 복사 완료 → $DEST"
+else
+  log_stop "config/workspace-orchestrator/ 없음"
+fi
 
 # ── 3. USER.md {{GOOGLE_ACCOUNT}} 치환 ───────────────────
 log_doing "USER.md Google 계정 주입"
@@ -143,28 +138,13 @@ with open("$OPENCLAW_JSON") as f:
 
 ok = True
 
-# agents.list 확인
+# agents.list에 orchestrator 확인
 agent_ids = [a["id"] for a in c.get("agents", {}).get("list", [])]
-required_agents = ["orchestrator", "mail", "calendar", "drive"]
-missing = [a for a in required_agents if a not in agent_ids]
-if missing:
-    print(f"\033[1;33m[ WARN  ]\033[0m agents.list 에 없는 에이전트: {missing}")
-    print(f"\033[1;33m[ WARN  ]\033[0m   → setup.sh 를 다시 실행하세요.")
+if "orchestrator" not in agent_ids:
+    print(f"\033[1;33m[ WARN  ]\033[0m agents.list에 orchestrator 없음 → setup.sh 재실행 필요")
     ok = False
 else:
-    print(f"\033[0;32m[  OK   ]\033[0m agents.list: {required_agents} 모두 확인")
-
-# orchestrator subagents.allowAgents 확인
-orch = next((a for a in c.get("agents", {}).get("list", []) if a["id"] == "orchestrator"), None)
-if orch:
-    allow = sorted(orch.get("subagents", {}).get("allowAgents", []))
-    expected = sorted(["mail", "calendar", "drive"])
-    if allow != expected:
-        print(f"\033[1;33m[ WARN  ]\033[0m orchestrator.subagents.allowAgents 불일치: {allow}")
-        print(f"\033[1;33m[ WARN  ]\033[0m   → 기대값: {expected}")
-        ok = False
-    else:
-        print(f"\033[0;32m[  OK   ]\033[0m orchestrator.subagents.allowAgents: {allow}")
+    print(f"\033[0;32m[  OK   ]\033[0m agents.list: orchestrator 확인")
 
 # bindings 확인
 bindings = c.get("bindings", [])
@@ -174,8 +154,7 @@ has_binding = any(
     for b in bindings
 )
 if not has_binding:
-    print(f"\033[1;33m[ WARN  ]\033[0m orchestrator → telegram 바인딩 없음")
-    print(f"\033[1;33m[ WARN  ]\033[0m   → setup.sh 를 다시 실행하세요.")
+    print(f"\033[1;33m[ WARN  ]\033[0m orchestrator → telegram 바인딩 없음 → setup.sh 재실행 필요")
     ok = False
 else:
     print(f"\033[0;32m[  OK   ]\033[0m bindings: orchestrator → telegram 확인")
@@ -183,8 +162,7 @@ else:
 # channels.telegram.botToken 확인
 bot_token = c.get("channels", {}).get("telegram", {}).get("botToken", "")
 if not bot_token:
-    print(f"\033[1;33m[ WARN  ]\033[0m channels.telegram.botToken 없음")
-    print(f"\033[1;33m[ WARN  ]\033[0m   → setup.sh 를 다시 실행하거나 TELEGRAM_BOT_TOKEN 확인")
+    print(f"\033[1;33m[ WARN  ]\033[0m channels.telegram.botToken 없음 → TELEGRAM_BOT_TOKEN 확인")
     ok = False
 else:
     masked = bot_token[:6] + "****"

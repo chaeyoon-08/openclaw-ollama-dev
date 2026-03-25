@@ -1,20 +1,10 @@
 ---
-name: gog
-description: Google Workspace CLI (Calendar)
+name: gog-calendar
+description: Google Calendar CLI
 ---
 
-# gog — Google Workspace CLI
+# === Calendar Skills ===
 # ref: https://github.com/steipete/gogcli
-
-## 인증
-
-`GOG_ACCESS_TOKEN` 환경변수로 인증한다. run.sh가 발급 및 자동 갱신을 담당한다.
-
-```bash
-export GOG_ACCESS_TOKEN=<access_token>
-```
-
----
 
 ## 주의사항
 
@@ -22,6 +12,12 @@ export GOG_ACCESS_TOKEN=<access_token>
 - `--start-time`, `--end-time` 은 존재하지 않는 플래그
 - 올바른 플래그: `--start`, `--end` (형식: `2026-03-25T14:00:00`)
 - 일정 이동 시에도 `update` 명령에 `--start`, `--end` 변경으로 처리
+
+---
+
+## 인증
+
+`GOG_ACCESS_TOKEN` 환경변수로 인증한다. run.sh가 발급 및 자동 갱신을 담당한다.
 
 ---
 

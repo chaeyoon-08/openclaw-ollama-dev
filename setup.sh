@@ -50,8 +50,7 @@ fi
 
 MISSING=()
 for VAR in TELEGRAM_BOT_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
-           GOOGLE_REFRESH_TOKEN ORCHESTRATOR_MODEL MAIL_MODEL CALENDAR_MODEL \
-           DRIVE_MODEL FALLBACK_MODEL; do
+           GOOGLE_REFRESH_TOKEN ORCHESTRATOR_MODEL FALLBACK_MODEL; do
   [ -z "${!VAR}" ] && MISSING+=("$VAR")
 done
 
@@ -65,9 +64,6 @@ fi
 
 log_ok "환경변수 확인 완료"
 log_ok "  orchestrator: $ORCHESTRATOR_MODEL"
-log_ok "  mail:         $MAIL_MODEL"
-log_ok "  calendar:     $CALENDAR_MODEL"
-log_ok "  drive:        $DRIVE_MODEL"
 log_ok "  fallback:     $FALLBACK_MODEL"
 
 # ── 2. Node.js 확인 ───────────────────────────────────────
@@ -152,9 +148,6 @@ pull_model_once() {
 }
 
 pull_model_once "${ORCHESTRATOR_MODEL}"
-pull_model_once "${MAIL_MODEL}"
-pull_model_once "${CALENDAR_MODEL}"
-pull_model_once "${DRIVE_MODEL}"
 pull_model_once "${FALLBACK_MODEL}"
 
 if [ "$OLLAMA_STARTED" = true ]; then
@@ -261,9 +254,6 @@ _add_model_json() {
   fi
 }
 _add_model_json "${ORCHESTRATOR_MODEL}"
-_add_model_json "${MAIL_MODEL}"
-_add_model_json "${CALENDAR_MODEL}"
-_add_model_json "${DRIVE_MODEL}"
 _add_model_json "${FALLBACK_MODEL}"
 
 cat > "$OPENCLAW_DIR/openclaw.json" << EOF
@@ -285,9 +275,6 @@ ${MODELS_JSON}
     "defaults": {
       "compaction": {
         "mode": "safeguard"
-      },
-      "subagents": {
-        "runTimeoutSeconds": 120
       }
     },
     "list": [
@@ -296,33 +283,6 @@ ${MODELS_JSON}
         "workspace": "${OPENCLAW_DIR}/workspace-orchestrator",
         "model": {
           "primary": "ollama/${ORCHESTRATOR_MODEL}",
-          "fallbacks": ["ollama/${FALLBACK_MODEL}"]
-        },
-        "subagents": {
-          "allowAgents": ["mail", "calendar", "drive"]
-        }
-      },
-      {
-        "id": "mail",
-        "workspace": "${OPENCLAW_DIR}/workspace-mail",
-        "model": {
-          "primary": "ollama/${MAIL_MODEL}",
-          "fallbacks": ["ollama/${FALLBACK_MODEL}"]
-        }
-      },
-      {
-        "id": "calendar",
-        "workspace": "${OPENCLAW_DIR}/workspace-calendar",
-        "model": {
-          "primary": "ollama/${CALENDAR_MODEL}",
-          "fallbacks": ["ollama/${FALLBACK_MODEL}"]
-        }
-      },
-      {
-        "id": "drive",
-        "workspace": "${OPENCLAW_DIR}/workspace-drive",
-        "model": {
-          "primary": "ollama/${DRIVE_MODEL}",
           "fallbacks": ["ollama/${FALLBACK_MODEL}"]
         }
       }
@@ -387,9 +347,6 @@ log_doing "~/.openclaw/.env 생성 중..."
   printf 'GOOGLE_REFRESH_TOKEN=%s\n'  "${GOOGLE_REFRESH_TOKEN}"
   printf 'GOOGLE_ACCOUNT=%s\n'        "${GOOGLE_ACCOUNT:-}"
   printf 'ORCHESTRATOR_MODEL=%s\n'    "${ORCHESTRATOR_MODEL}"
-  printf 'MAIL_MODEL=%s\n'            "${MAIL_MODEL}"
-  printf 'CALENDAR_MODEL=%s\n'        "${CALENDAR_MODEL}"
-  printf 'DRIVE_MODEL=%s\n'           "${DRIVE_MODEL}"
   printf 'FALLBACK_MODEL=%s\n'        "${FALLBACK_MODEL}"
   printf 'OLLAMA_API_KEY=%s\n'        "ollama-local"
   printf 'DRIVE_MEMORY_FOLDER=%s\n'   "${DRIVE_MEMORY_FOLDER:-openclaw-memory}"

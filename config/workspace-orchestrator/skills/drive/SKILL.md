@@ -1,18 +1,14 @@
 ---
-name: gog
-description: Google Workspace CLI (Drive)
+name: gog-drive
+description: Google Drive CLI
 ---
 
-# gog — Google Workspace CLI
+# === Drive Skills ===
 # ref: https://github.com/steipete/gogcli
 
 ## 인증
 
 `GOG_ACCESS_TOKEN` 환경변수로 인증한다. run.sh가 발급 및 자동 갱신을 담당한다.
-
-```bash
-export GOG_ACCESS_TOKEN=<access_token>
-```
 
 ---
 
