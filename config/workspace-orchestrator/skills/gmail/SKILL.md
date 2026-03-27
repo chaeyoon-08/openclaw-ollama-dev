@@ -15,11 +15,18 @@ description: Google Gmail CLI
 ## gog gmail
 
 ```bash
-# 메일 검색
+# 메일 검색 (기본 출력: 제목·발신자·messageId 목록)
 gog gmail search "<query>"
 # 예: gog gmail search "from:kim@example.com is:unread"
+# 예: gog gmail search "is:unread"
+#
+# 출력 예시:
+#   [abc123] 제목: 회의 일정 안내 | from: kim@example.com
+#   [def456] 제목: 견적서 요청 드립니다 | from: park@example.com
+#
+# messageId: 대괄호 안의 값 (예: abc123) → gog gmail get에 사용
 
-# 메일 조회
+# 메일 조회 (messageId로 전체 내용 확인)
 gog gmail get <messageId>
 
 # 메일 전송

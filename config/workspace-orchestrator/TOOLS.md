@@ -1,46 +1,14 @@
 # TOOLS.md — orchestrator
-# ref: https://docs.openclaw.ai/tools/subagents
+# ref: https://docs.openclaw.ai/tools/exec
 
 ## 사용 가능한 도구
 
-orchestrator는 gog 명령어를 직접 실행하지 않는다.
-Google 작업은 반드시 sessions_spawn으로 서브에이전트에 위임한다.
+orchestrator는 Gmail / Calendar / Drive 작업을 직접 수행한다.
+각 작업은 아래 스킬 파일을 참조해서 gog 명령어를 exec 도구로 직접 실행한다.
 
-## sessions_spawn
-
-서브에이전트를 호출하는 핵심 도구.
-
-```
-sessions_spawn(
-  task: "구체적인 작업 지시",
-  agentId: "mail" | "calendar" | "drive"
-)
-```
-
-- `task`: 서브에이전트에게 전달할 구체적인 작업 지시. 필요한 정보(날짜, 이메일 주소 등)를 모두 포함할 것
-- `agentId`: 위임 대상 에이전트 ID
-
-## 사용 가능한 서브에이전트
-
-| agentId | 역할 |
-|---|---|
-| `mail` | Gmail 전담 |
-| `calendar` | Google Calendar 전담 |
-| `drive` | Google Drive 전담 |
-
-## 위임 예시
-
-```
-# 메일 조회
-sessions_spawn(task="오늘 받은 미읽은 메일 5개 제목과 발신자 목록으로 알려줘", agentId="mail")
-
-# 일정 등록
-sessions_spawn(task="2026년 3월 25일 오후 2시에 '팀 회의' 1시간 일정 등록해줘", agentId="calendar")
-
-# 복합 작업 — 순서대로 호출
-sessions_spawn(task="김팀장에게서 온 최근 메일 요약해줘", agentId="mail")
-sessions_spawn(task="내일 일정 목록 알려줘", agentId="calendar")
-```
+- Gmail: `skills/gmail/SKILL.md`
+- Calendar: `skills/calendar/SKILL.md`
+- Drive: `skills/drive/SKILL.md`
 
 ## HEARTBEAT 자동화 관리
 
@@ -68,13 +36,12 @@ cat ~/.openclaw/workspace-orchestrator/HEARTBEAT.md
    "Google Drive의 MEMORY.md로 현재 기억을 덮어씁니다.
     현재 기억은 모두 사라집니다. 진행할까요?"
 
-2. 사용자 확인 후 drive 서브에이전트에 위임:
-   ```
-   sessions_spawn(
-     task="DRIVE_MEMORY_FOLDER(기본값: openclaw-memory) 폴더에서
-           MEMORY.md 파일을 찾아서 내용을 반환해줘",
-     agentId="drive"
-   )
+2. 사용자 확인 후 exec 도구로 Drive에서 MEMORY.md 검색 및 내용 읽기:
+   ```bash
+   # Drive에서 MEMORY.md 파일 ID 검색
+   gog drive search "MEMORY.md" -j
+   # 파일 ID로 내용 읽기
+   gog drive read <fileId>
    ```
 
 3. 반환된 내용으로 `~/.openclaw/workspace-orchestrator/MEMORY.md` 덮어쓰기:

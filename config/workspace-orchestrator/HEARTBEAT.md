@@ -4,11 +4,17 @@
 
 ## 실행 순서
 
-1. `mail` 서브에이전트에 미읽은 중요 메일 확인 요청
+1. 미읽은 중요 메일 확인:
+   ```bash
+   gog gmail search 'is:unread is:important'
+   ```
    - 중요 메일(발신자가 알려진 사람 또는 제목에 긴급/중요/FWD 포함)이 있으면 제목·발신자·한 줄 요약을 Telegram으로 전송
    - 없으면 넘어감
 
-2. `calendar` 서브에이전트에 오늘 남은 일정 확인 요청
+2. 오늘 남은 일정 확인:
+   ```bash
+   gog calendar list --days 1
+   ```
    - 남은 일정이 있으면 시간·제목 목록을 Telegram으로 전송
    - 없으면 넘어감
 

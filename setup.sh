@@ -306,7 +306,7 @@ ${MODELS_JSON}
   },
   "session": {
     "reset": {
-      "mode": "never"
+      "mode": "daily"
     }
   },
   "env": {
