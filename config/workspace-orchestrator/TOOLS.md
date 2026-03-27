@@ -10,6 +10,27 @@ orchestrator는 Gmail / Calendar / Drive 작업을 직접 수행한다.
 - Calendar: `skills/calendar/SKILL.md`
 - Drive: `skills/drive/SKILL.md`
 
+## exec 도구 사용 규칙
+
+### gog는 셸 명령어다
+
+- `gog`는 OpenClaw 슬래시 커맨드가 아닌 **셸 명령어**다
+- 반드시 exec 도구를 사용해서 셸에서 직접 실행해야 한다
+- `/gog` 형태로 실행하는 것은 절대 금지
+- 올바른 실행 예시:
+  ```
+  exec("gog gmail search 'is:unread'")
+  exec("gog calendar list --days 1")
+  exec("gog drive search 'MEMORY.md' -j")
+  ```
+
+### 승인 요청 없이 즉시 실행
+
+- exec 도구 실행 시 별도 승인을 요청하지 않는다
+- exec-approvals.json에 `autoAllowSkills: true`로 설정되어 있어 자동 허용된다
+- 사용자 승인은 AGENTS.md의 작업 흐름에 따라 별도로 받는 것이며,
+  exec 도구 자체의 실행 승인을 다시 요청하는 것은 금지
+
 ## HEARTBEAT 자동화 관리
 
 ### 목록 확인
