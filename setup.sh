@@ -246,7 +246,7 @@ _add_model_json() {
   [ "$SKIP" = true ] && return
   _SEEN_MODELS+=("$M")
   local ENTRY
-  ENTRY=$(printf '          {\n            "id": "%s",\n            "name": "%s",\n            "contextWindow": 32768,\n            "maxTokens": 8192,\n            "reasoning": false,\n            "input": ["text"],\n            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }\n          }' "$M" "$M")
+  ENTRY=$(printf '          {\n            "id": "%s",\n            "name": "%s",\n            "contextWindow": 131072,\n            "maxTokens": 8192,\n            "reasoning": false,\n            "input": ["text"],\n            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }\n          }' "$M" "$M")
   if [ -n "$MODELS_JSON" ]; then
     MODELS_JSON="${MODELS_JSON},"$'\n'"${ENTRY}"
   else

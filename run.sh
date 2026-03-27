@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================
 # openclaw-ollama-dev / run.sh
-# 서비스 기동 스크립트 (Ollama + proxy.js + openclaw gateway)
+# 서비스 기동 스크립트 (Ollama + openclaw gateway)
 #
 # 사전 조건: setup.sh → setup-agent.sh 완료
 #
@@ -36,7 +36,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPENCLAW_DIR="$HOME/.openclaw"
 OLLAMA_LOG="$OPENCLAW_DIR/ollama.log"
 GATEWAY_LOG="$OPENCLAW_DIR/gateway.log"
-PROXY_LOG="$OPENCLAW_DIR/proxy.log"
 
 log_start "OpenClaw 서비스 기동"
 
@@ -60,12 +59,11 @@ log_doing "기존 프로세스 정리"
 
 # 프로세스명으로 종료
 pkill -f 'openclaw' 2>/dev/null || true
-pkill -f 'node.*proxy' 2>/dev/null || true
 pkill -f 'ollama serve' 2>/dev/null || true
 # 좀비 프로세스 무시하고 실제 프로세스만 대기
 sleep 1
 # 살아있는 프로세스가 있으면 추가 대기
-pgrep -f 'openclaw|node.*proxy|ollama serve' > /dev/null 2>&1 && sleep 2 || true
+pgrep -f 'openclaw|ollama serve' > /dev/null 2>&1 && sleep 2 || true
 
 # 포트 점유 프로세스 종료 (fuser 우선, 없으면 /proc/net/tcp 방식)
 kill_port() {
@@ -90,7 +88,7 @@ kill_port() {
   fi
 }
 
-for PORT in 8080 18789 11434; do
+for PORT in 18789 11434; do
   kill_port "$PORT"
 done
 sleep 1
@@ -211,28 +209,7 @@ if [ "$READY" = false ]; then
 fi
 log_ok "Ollama 기동 완료 (PID: $(pgrep -x ollama | head -1))"
 
-# ── 6. proxy.js 기동 ──────────────────────────────────────
-log_doing "proxy.js 기동 (0.0.0.0:8080 → 127.0.0.1:18789)"
-
-node "$SCRIPT_DIR/proxy.js" > "$PROXY_LOG" 2>&1 &
-
-# 포트 8080 응답까지 대기 (최대 30초)
-READY=false
-for i in $(seq 1 30); do
-  if (echo >/dev/tcp/127.0.0.1/8080) 2>/dev/null; then
-    READY=true
-    break
-  fi
-  sleep 1
-done
-
-if [ "$READY" = false ]; then
-  log_error "proxy.js 기동 타임아웃 (30초)"
-  log_stop "로그 확인: tail -f $PROXY_LOG"
-fi
-log_ok "proxy.js 기동 완료 (포트 8080 응답 확인)"
-
-# ── 7. openclaw gateway 기동 ──────────────────────────────
+# ── 6. openclaw gateway 기동 ──────────────────────────────
 log_doing "openclaw gateway 기동"
 
 openclaw gateway > "$GATEWAY_LOG" 2>&1 &
@@ -273,7 +250,7 @@ if [ "$READY" = false ]; then
 fi
 log_ok "openclaw gateway 기동 완료"
 
-# ── 8. MEMORY.md 자동 백업 ────────────────────────────────
+# ── 7. MEMORY.md 자동 백업 ────────────────────────────────
 # MEMORY.md 자동 백업 (30분 주기, 에이전트와 독립적으로 동작)
 (
   while true; do
@@ -297,43 +274,18 @@ except:
     sys.exit(1)
 " 2>/dev/null)
       if [ -n "$ACCESS_TOKEN" ] && [ -n "$ACCOUNT" ]; then
-        FOLDER_NAME="${DRIVE_MEMORY_FOLDER:-openclaw-memory}"
-        FOLDER_ID=$(GOG_ACCESS_TOKEN="$ACCESS_TOKEN" GOG_ACCOUNT="$ACCOUNT" \
-          gog drive search "$FOLDER_NAME" -j 2>/dev/null | python3 -c "
-import json,sys
-try:
-    files = json.load(sys.stdin).get('files', [])
-    folders = [f for f in files if f.get('mimeType') == 'application/vnd.google-apps.folder']
-    print(folders[0]['id'] if folders else '')
-except:
-    print('')
-")
-        if [ -z "$FOLDER_ID" ]; then
-          FOLDER_ID=$(GOG_ACCESS_TOKEN="$ACCESS_TOKEN" GOG_ACCOUNT="$ACCOUNT" \
-            gog drive mkdir "$FOLDER_NAME" -j 2>/dev/null | python3 -c "
-import json,sys
-try:
-    print(json.load(sys.stdin)['folder']['id'])
-except:
-    print('')
-")
-        fi
-        if [ -n "$FOLDER_ID" ]; then
-          GOG_ACCESS_TOKEN="$ACCESS_TOKEN" GOG_ACCOUNT="$ACCOUNT" \
-            gog drive upload "$MEMORY_FILE" --parent "$FOLDER_ID" \
-            > /dev/null 2>&1 \
-            && log_ok "MEMORY.md 백업 완료" \
-            || log_warn "MEMORY.md 백업 실패 — 다음 주기에 재시도"
-        else
-          log_warn "MEMORY.md 백업 실패 — 폴더 생성 오류"
-        fi
+        GOG_ACCESS_TOKEN="$ACCESS_TOKEN" GOG_ACCOUNT="$ACCOUNT" \
+          gog drive upload "$MEMORY_FILE" \
+          > /dev/null 2>&1 \
+          && log_ok "MEMORY.md 백업 완료" \
+          || log_warn "MEMORY.md 백업 실패 — 다음 주기에 재시도"
       fi
     fi
   done
 ) &
 log_ok "MEMORY.md 자동 백업 시작 (30분 주기)"
 
-# ── 9. 완료 메시지 ────────────────────────────────────────
+# ── 8. 완료 메시지 ────────────────────────────────────────
 echo ""
 log_done "모든 서비스 기동 완료"
 echo ""
@@ -351,7 +303,6 @@ echo ""
 echo "  로그 확인:"
 echo "  tail -f $GATEWAY_LOG"
 echo "  tail -f $OLLAMA_LOG"
-echo "  tail -f $PROXY_LOG"
 echo ""
 echo "  서비스 종료:"
-echo "  pkill -f openclaw; pkill -f 'node.*proxy'; pkill -f 'ollama serve'"
+echo "  pkill -f openclaw; pkill -f 'ollama serve'"
