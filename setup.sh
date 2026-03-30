@@ -102,16 +102,20 @@ else
   log_doing "Ollama 바이너리 직접 설치 중 (${OLLAMA_BIN_DIR})..."
 
   OLLAMA_VERSION=$(curl -s https://api.github.com/repos/ollama/ollama/releases/latest \
-    | grep '"tag_name"' | cut -d'"' -f4)
-  [ -z "$OLLAMA_VERSION" ] && OLLAMA_VERSION="v0.6.8"
+    | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+  [ -z "$OLLAMA_VERSION" ] && OLLAMA_VERSION="v0.19.0"
 
-  OLLAMA_URL="https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/ollama-linux-amd64"
+  OLLAMA_URL="https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/ollama-linux-amd64.tar.zst"
   log_doing "다운로드: ${OLLAMA_URL}"
 
   mkdir -p "$OLLAMA_BIN_DIR"
-  curl -fL "$OLLAMA_URL" -o "${OLLAMA_BIN_DIR}/ollama" \
+  curl -fL "$OLLAMA_URL" -o /tmp/ollama.tar.zst \
     || log_stop "Ollama 다운로드 실패"
+  tar --use-compress-program=unzstd -xf /tmp/ollama.tar.zst -C /tmp \
+    || log_stop "Ollama 압축 해제 실패"
+  mv /tmp/bin/ollama "${OLLAMA_BIN_DIR}/ollama"
   chmod +x "${OLLAMA_BIN_DIR}/ollama"
+  rm -f /tmp/ollama.tar.zst
 
   export PATH="${OLLAMA_BIN_DIR}:$PATH"
   log_ok "Ollama 설치 완료: $(ollama --version 2>/dev/null | head -1) → ${OLLAMA_BIN_DIR}"
