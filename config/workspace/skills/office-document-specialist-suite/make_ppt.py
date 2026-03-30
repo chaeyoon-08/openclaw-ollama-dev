@@ -60,7 +60,8 @@ def make_content_slide(prs, title, content, theme):
     add_rect(slide, Inches(0.35), Inches(1.55), Inches(12.6), Inches(5.55), co)
     add_text(slide, content, Inches(0.6), Inches(1.75), Inches(12.1), Inches(5.1), 18, color=ct)
     add_rect(slide, Inches(0), Inches(7.1), Inches(13.33), Inches(0.4), cc)
-    add_text(slide, "Powered by Clari AI", Inches(0.4), Inches(7.12), Inches(5), Inches(0.3), 11, color=GRAY_TEXT if is_dark else LIGHT_SUB)
+    add_text(slide, "Powered by Clari AI", Inches(0.4), Inches(7.12), Inches(5), Inches(0.3), 11,
+             color=GRAY_TEXT if is_dark else LIGHT_SUB)
 
 def make_ppt(slides_json, output, theme="dark"):
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
