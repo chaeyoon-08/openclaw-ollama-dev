@@ -68,7 +68,7 @@ gcube 워크로드 컨테이너 접속 후 아래 순서로 실행한다.
 
 ```bash
 # 1. 레포 클론
-git clone https://github.com/chaeyoon-08/openclaw-ollama-dev.git
+git clone -b feat/qwen3-14b-agent https://github.com/chaeyoon-08/openclaw-ollama-dev.git
 cd openclaw-ollama-dev
 
 # 2. 인프라 설치 (Node.js + Ollama + OpenClaw + Python 패키지)
