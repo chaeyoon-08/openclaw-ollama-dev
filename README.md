@@ -43,6 +43,13 @@ bash run.sh          # 서비스 기동
 | `OLLAMA_MODEL` | 필수 | Ollama 모델명 (기본값: `qwen3:14b`) |
 | `ANTHROPIC_API_KEY` | 선택 | Claude API 키 |
 
+## Control UI 접속
+
+gateway 실행 후 아래 URL로 Control UI 접속 가능:
+- 로컬: http://127.0.0.1:18789/__openclaw__/canvas/
+- gcube 서비스 URL: https://[서비스URL]/__openclaw__/canvas/
+- 토큰: run.sh 실행 후 출력되는 Gateway Token 사용
+
 ## 로그 확인
 
 ```bash

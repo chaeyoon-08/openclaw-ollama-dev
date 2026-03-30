@@ -214,7 +214,10 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
     "port": 18789,
     "mode": "local",
     "bind": "loopback",
-    "controlUi": { "allowInsecureAuth": true },
+    "controlUi": {
+      "allowInsecureAuth": true,
+      "dangerouslyAllowHostHeaderOriginFallback": true
+    },
     "auth": { "mode": "token", "token": "${GW_TOKEN}" }
   },
   "plugins": {
