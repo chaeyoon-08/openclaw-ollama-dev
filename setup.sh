@@ -121,6 +121,22 @@ else
   log_ok "Ollama 설치 완료: $(ollama --version 2>/dev/null | head -1) → ${OLLAMA_BIN_DIR}"
 fi
 
+# ── 3-1. Ollama 모델 pull ──────────────────────────────────
+log_doing "Ollama 모델 다운로드 준비"
+
+export OLLAMA_MODELS=/workspace/ollama/models
+/workspace/ollama/bin/ollama serve &
+OLLAMA_PID=$!
+sleep 5
+
+log_doing "Ollama 모델 다운로드 중: ${OLLAMA_MODEL}"
+/workspace/ollama/bin/ollama pull "${OLLAMA_MODEL}" \
+  || log_stop "모델 다운로드 실패: ${OLLAMA_MODEL}"
+log_ok "모델 다운로드 완료: ${OLLAMA_MODEL}"
+
+kill $OLLAMA_PID 2>/dev/null || true
+sleep 2
+
 # ── 4. OpenClaw 설치 ──────────────────────────────────────
 log_doing "OpenClaw 확인"
 
