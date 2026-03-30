@@ -175,8 +175,8 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
         "api": "openai-completions",
         "models": [
           {
-            "id": "${OLLAMA_MODEL}:latest",
-            "name": "${OLLAMA_MODEL}:latest",
+            "id": "${OLLAMA_MODEL}",
+            "name": "${OLLAMA_MODEL}",
             "reasoning": false,
             "input": ["text"],
             "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
@@ -190,7 +190,7 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
   },
   "agents": {
     "defaults": {
-      "model": { "primary": "ollama/${OLLAMA_MODEL}:latest" },
+      "model": { "primary": "ollama/${OLLAMA_MODEL}" },
       "workspace": "${OPENCLAW_DIR}/workspace"
     }
   },
