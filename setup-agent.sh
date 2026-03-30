@@ -217,6 +217,15 @@ pkill -f 'openclaw gateway' 2>/dev/null || true
 sleep 1
 log_ok "gateway 종료 완료"
 
+# ── 8. 예시 파일 생성 ────────────────────────────────────
+log_doing "예시 파일 생성 중..."
+
+OPENCLAW_WORKSPACE="$OPENCLAW_DIR/workspace" \
+OUTPUT_DIR="/workspace/work" \
+python3 "$OPENCLAW_DIR/workspace/skills/office-document-specialist-suite/make_examples.py" \
+  && log_ok "예시 파일 생성 완료" \
+  || log_warn "예시 파일 생성 실패 (선택사항)"
+
 # ── 완료 ──────────────────────────────────────────────────
 echo ""
 log_done "에이전트 설정 완료"
