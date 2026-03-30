@@ -37,21 +37,11 @@ GATEWAY_LOG="$OPENCLAW_DIR/gateway.log"
 
 log_start "OpenClaw 서비스 기동"
 
-# ── 1. .env 로드 및 필수 변수 검증 ────────────────────────
-if [ ! -f "$OPENCLAW_DIR/.env" ]; then
-  log_stop "~/.openclaw/.env 없음. 먼저 setup.sh 를 실행해 주세요."
-fi
+# ── 1. 환경변수 검증 ──────────────────────────────────────
+: "${TELEGRAM_BOT_TOKEN:?오류: TELEGRAM_BOT_TOKEN 환경변수를 설정해주세요 (gcube 워크로드 배포 시 컨테이너 환경변수로 입력)}"
+: "${OLLAMA_MODEL:=qwen3:14b}"
 
-set -a
-# shellcheck source=/dev/null
-source "$OPENCLAW_DIR/.env"
-set +a
-
-for VAR in TELEGRAM_BOT_TOKEN OLLAMA_MODEL; do
-  [ -z "${!VAR}" ] && log_stop "$VAR 미설정. setup.sh 를 먼저 실행해 주세요."
-done
-
-log_ok "환경변수 로드 완료 / model: $OLLAMA_MODEL"
+log_ok "환경변수 확인 완료 / model: $OLLAMA_MODEL"
 
 # ── 2. 기존 프로세스 정리 ─────────────────────────────────
 log_doing "기존 프로세스 정리"

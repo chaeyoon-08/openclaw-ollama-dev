@@ -39,29 +39,11 @@ WORKSPACE_BIN="/workspace"
 
 log_start "OpenClaw 설치 시작"
 
-# ── 1. .env 로드 및 필수 변수 검증 ────────────────────────
+# ── 1. 환경변수 검증 ──────────────────────────────────────
 log_doing "환경변수 확인"
 
-if [ -f "$SCRIPT_DIR/.env" ]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$SCRIPT_DIR/.env"
-  set +a
-  log_ok ".env 로드 완료"
-fi
-
-MISSING=()
-for VAR in TELEGRAM_BOT_TOKEN OLLAMA_MODEL; do
-  [ -z "${!VAR}" ] && MISSING+=("$VAR")
-done
-
-if [ ${#MISSING[@]} -gt 0 ]; then
-  log_error "미설정 환경변수:"
-  for V in "${MISSING[@]}"; do
-    echo "        - $V"
-  done
-  log_stop ".env 파일을 확인하고 모든 필수 변수를 설정하세요."
-fi
+: "${TELEGRAM_BOT_TOKEN:?오류: TELEGRAM_BOT_TOKEN 환경변수를 설정해주세요 (gcube 워크로드 배포 시 컨테이너 환경변수로 입력)}"
+: "${OLLAMA_MODEL:=qwen3:14b}"
 
 log_ok "환경변수 확인 완료"
 log_ok "  model: $OLLAMA_MODEL"
@@ -242,18 +224,6 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
 EOF
 
 log_ok "openclaw.json 생성 완료: $OPENCLAW_DIR/openclaw.json"
-
-# ── 7. ~/.openclaw/.env 생성 ──────────────────────────────
-log_doing "~/.openclaw/.env 생성 중..."
-
-{
-  printf 'TELEGRAM_BOT_TOKEN=%s\n' "${TELEGRAM_BOT_TOKEN}"
-  printf 'OLLAMA_MODEL=%s\n'       "${OLLAMA_MODEL}"
-  printf 'ANTHROPIC_API_KEY=%s\n'  "${ANTHROPIC_API_KEY:-}"
-} > "$OPENCLAW_DIR/.env"
-chmod 600 "$OPENCLAW_DIR/.env"
-
-log_ok "~/.openclaw/.env 생성 완료 (chmod 600)"
 
 # ── 완료 ──────────────────────────────────────────────────
 echo ""

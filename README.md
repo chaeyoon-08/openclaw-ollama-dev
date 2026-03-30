@@ -25,23 +25,25 @@ Ollama(qwen3:14b) + OpenClaw 기반 리서치 & 자료 제작 AI 비서 Clari
    # OLLAMA_MODEL=qwen3:14b 로 설정하면 자동으로 pull
    ```
 
+## 환경변수
+
+gcube 워크로드 배포 시 컨테이너 환경변수로 입력:
+
+| 변수명 | 필수 | 기본값 | 설명 |
+|--------|------|--------|------|
+| `TELEGRAM_BOT_TOKEN` | ✅ | - | BotFather에서 발급한 봇 토큰 |
+| `OLLAMA_MODEL` | ❌ | `qwen3:14b` | Ollama 모델명 |
+| `ANTHROPIC_API_KEY` | ❌ | - | Claude API 키 |
+
 ## 설치 및 실행
 
 ```bash
-cp .env.example .env
-vi .env  # TELEGRAM_BOT_TOKEN, OLLAMA_MODEL 입력
-bash setup.sh        # Node.js + Ollama + OpenClaw + Python 패키지 설치
-bash setup-agent.sh  # 워크스페이스 + 스킬 설치
-bash run.sh          # 서비스 기동
+git clone [repo]
+cd openclaw-ollama-dev
+bash setup.sh
+bash setup-agent.sh
+bash run.sh
 ```
-
-## 환경변수
-
-| 변수 | 필수 | 설명 |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | 필수 | BotFather에서 발급한 봇 토큰 |
-| `OLLAMA_MODEL` | 필수 | Ollama 모델명 (기본값: `qwen3:14b`) |
-| `ANTHROPIC_API_KEY` | 선택 | Claude API 키 |
 
 ## Control UI 접속
 

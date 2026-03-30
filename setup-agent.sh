@@ -40,23 +40,11 @@ log_start "에이전트 워크스페이스 설정 시작"
 # ── 1. PATH 설정 ──────────────────────────────────────────
 export PATH="/workspace/node/bin:/workspace/ollama/bin:$PATH"
 
-# ── 2. ~/.openclaw/.env 로드 ──────────────────────────────
-log_doing "~/.openclaw/.env 로드"
+# ── 2. 환경변수 검증 ──────────────────────────────────────
+log_doing "환경변수 확인"
 
-if [ ! -f "$OPENCLAW_DIR/.env" ]; then
-  log_stop "~/.openclaw/.env 없음. 먼저 setup.sh 를 실행해 주세요."
-fi
-
-set -a
-# shellcheck source=/dev/null
-source "$OPENCLAW_DIR/.env"
-set +a
-
-for _VAR in TELEGRAM_BOT_TOKEN OLLAMA_MODEL; do
-  if [ -z "${!_VAR}" ]; then
-    log_stop "${_VAR} 미설정. setup.sh 를 먼저 실행해 주세요."
-  fi
-done
+: "${TELEGRAM_BOT_TOKEN:?오류: TELEGRAM_BOT_TOKEN 환경변수를 설정해주세요 (gcube 워크로드 배포 시 컨테이너 환경변수로 입력)}"
+: "${OLLAMA_MODEL:=qwen3:14b}"
 
 log_ok "model: $OLLAMA_MODEL"
 
