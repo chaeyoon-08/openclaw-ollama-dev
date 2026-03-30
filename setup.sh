@@ -101,8 +101,9 @@ if command -v ollama &>/dev/null; then
 else
   log_doing "Ollama 바이너리 직접 설치 중 (${OLLAMA_BIN_DIR})..."
 
-  OLLAMA_VERSION=$(curl -sf "https://api.github.com/repos/ollama/ollama/releases/latest" \
-    | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])" 2>/dev/null || echo "v0.6.8")
+  OLLAMA_VERSION=$(curl -s https://api.github.com/repos/ollama/ollama/releases/latest \
+    | grep '"tag_name"' | cut -d'"' -f4)
+  [ -z "$OLLAMA_VERSION" ] && OLLAMA_VERSION="v0.6.8"
 
   OLLAMA_URL="https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/ollama-linux-amd64"
   log_doing "다운로드: ${OLLAMA_URL}"
