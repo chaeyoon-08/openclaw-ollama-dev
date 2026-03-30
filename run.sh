@@ -37,6 +37,10 @@ GATEWAY_LOG="$OPENCLAW_DIR/gateway.log"
 
 log_start "OpenClaw 서비스 기동"
 
+# ── 0. PATH 설정 ──────────────────────────────────────────
+export PATH=$PATH:/workspace/node/bin:/workspace/ollama/bin
+export OLLAMA_MODELS=/workspace/ollama/models
+
 # ── 1. 환경변수 검증 ──────────────────────────────────────
 : "${TELEGRAM_BOT_TOKEN:?오류: TELEGRAM_BOT_TOKEN 환경변수를 설정해주세요 (gcube 워크로드 배포 시 컨테이너 환경변수로 입력)}"
 : "${OLLAMA_MODEL:=qwen3:14b}"
@@ -53,10 +57,8 @@ pgrep -f 'openclaw|ollama serve' > /dev/null 2>&1 && sleep 2 || true
 
 log_ok "프로세스 정리 완료"
 
-# ── 3. PATH 설정 ──────────────────────────────────────────
-log_doing "PATH 설정"
-
-export PATH="/workspace/node/bin:/workspace/ollama/bin:$PATH"
+# ── 3. 바이너리 확인 ──────────────────────────────────────
+log_doing "바이너리 확인"
 
 # node / ollama 경로 확인
 if ! command -v node &>/dev/null; then

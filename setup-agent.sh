@@ -38,7 +38,8 @@ GATEWAY_LOG="$OPENCLAW_DIR/gateway-setup.log"
 log_start "에이전트 워크스페이스 설정 시작"
 
 # ── 1. PATH 설정 ──────────────────────────────────────────
-export PATH="/workspace/node/bin:/workspace/ollama/bin:$PATH"
+export PATH=$PATH:/workspace/node/bin:/workspace/ollama/bin
+export OLLAMA_MODELS=/workspace/ollama/models
 
 # ── 2. 환경변수 검증 ──────────────────────────────────────
 log_doing "환경변수 확인"

@@ -230,6 +230,14 @@ EOF
 
 log_ok "openclaw.json 생성 완료: $OPENCLAW_DIR/openclaw.json"
 
+# ── 7. PATH 영구 설정 ─────────────────────────────────────
+log_doing "PATH 영구 설정 (~/.bashrc)"
+
+echo 'export PATH=$PATH:/workspace/node/bin:/workspace/ollama/bin' >> /root/.bashrc
+export PATH=$PATH:/workspace/node/bin:/workspace/ollama/bin
+
+log_ok "PATH 설정 완료"
+
 # ── 완료 ──────────────────────────────────────────────────
 echo ""
 log_done "설치 완료"
