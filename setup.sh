@@ -1,14 +1,15 @@
 #!/bin/bash
 # =============================================================
 # openclaw-ollama-dev / setup.sh
-# Ollama + gogcli + OpenClaw 설치 및 초기 설정 스크립트
+# Node.js + Ollama + OpenClaw 설치 및 openclaw.json 생성 스크립트
+#
+# 대상 환경: unsloth Docker 이미지 (apt 권한 없음)
+# → Node.js / Ollama 바이너리 직접 설치
 #
 # 참고 문서:
 #   OpenClaw  : https://docs.openclaw.ai
-#   gogcli    : https://github.com/steipete/gogcli
-#   Ollama    : https://ollama.ai
-#   NodeSource: https://github.com/nodesource/distributions
-#   Go        : https://go.dev/dl
+#   Node.js   : https://nodejs.org/dist
+#   Ollama    : https://github.com/ollama/ollama/releases
 # =============================================================
 
 set -eo pipefail
@@ -34,10 +35,11 @@ log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPENCLAW_DIR="$HOME/.openclaw"
+WORKSPACE_BIN="/workspace"
 
-log_start "OpenClaw Ollama 설치 시작"
+log_start "OpenClaw 설치 시작"
 
-# ── 1. .env 검증 ──────────────────────────────────────────
+# ── 1. .env 로드 및 필수 변수 검증 ────────────────────────
 log_doing "환경변수 확인"
 
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -49,8 +51,7 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
 fi
 
 MISSING=()
-for VAR in TELEGRAM_BOT_TOKEN GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET \
-           GOOGLE_REFRESH_TOKEN ORCHESTRATOR_MODEL FALLBACK_MODEL; do
+for VAR in TELEGRAM_BOT_TOKEN OLLAMA_MODEL; do
   [ -z "${!VAR}" ] && MISSING+=("$VAR")
 done
 
@@ -63,10 +64,9 @@ if [ ${#MISSING[@]} -gt 0 ]; then
 fi
 
 log_ok "환경변수 확인 완료"
-log_ok "  orchestrator: $ORCHESTRATOR_MODEL"
-log_ok "  fallback:     $FALLBACK_MODEL"
+log_ok "  model: $OLLAMA_MODEL"
 
-# ── 2. Node.js 확인 ───────────────────────────────────────
+# ── 2. Node.js 22 설치 확인 ───────────────────────────────
 log_doing "Node.js 확인"
 
 NODE_OK=false
@@ -83,142 +83,58 @@ else
 fi
 
 if [ "$NODE_OK" = false ]; then
-  log_doing "Node.js 22 설치 중..."
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  apt-get install -y nodejs
-  log_ok "Node.js $(node --version) 설치 완료"
+  log_doing "Node.js 22 바이너리 설치 중 (/workspace/node)..."
+
+  # LTS 최신 22.x 버전 가져오기
+  NODE_VERSION=$(curl -sf https://nodejs.org/dist/latest-v22.x/ \
+    | grep -oP 'node-v\K[0-9]+\.[0-9]+\.[0-9]+(?=-linux-x64\.tar\.xz)' \
+    | head -1)
+  [ -z "$NODE_VERSION" ] && NODE_VERSION="22.15.0"
+
+  NODE_TAR="node-v${NODE_VERSION}-linux-x64.tar.xz"
+  NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/${NODE_TAR}"
+  NODE_DEST="${WORKSPACE_BIN}/node"
+
+  log_doing "다운로드: $NODE_URL"
+  curl -fL "$NODE_URL" -o "/tmp/${NODE_TAR}" \
+    || log_stop "Node.js 다운로드 실패"
+
+  rm -rf "${WORKSPACE_BIN}"/node-v*-linux-x64 "$NODE_DEST"
+  mkdir -p "$WORKSPACE_BIN"
+  tar -xJf "/tmp/${NODE_TAR}" -C "$WORKSPACE_BIN"
+  mv "${WORKSPACE_BIN}/node-v${NODE_VERSION}-linux-x64" "$NODE_DEST"
+  rm -f "/tmp/${NODE_TAR}"
+
+  export PATH="${NODE_DEST}/bin:$PATH"
+  log_ok "Node.js $(node --version) 설치 완료 → ${NODE_DEST}/bin"
 fi
 
-# ── 3. Ollama 설치 ────────────────────────────────────────
+# ── 3. Ollama 설치 확인 ────────────────────────────────────
 log_doing "Ollama 확인"
 
-if ! command -v ollama &>/dev/null; then
-  log_doing "Ollama 설치 중..."
-  curl -fsSL https://ollama.ai/install.sh | sh
-  log_ok "Ollama 설치 완료"
-else
+OLLAMA_BIN_DIR="${WORKSPACE_BIN}/ollama/bin"
+
+if command -v ollama &>/dev/null; then
   log_ok "Ollama 이미 설치됨: $(ollama --version 2>/dev/null | head -1)"
-fi
-
-# ── 3-1. Ollama 모델 pull ─────────────────────────────────
-log_doing "Ollama 모델 pull 확인"
-
-# ollama serve가 실행 중인지 확인, 아니면 백그라운드로 기동
-OLLAMA_STARTED=false
-if ! curl -s http://127.0.0.1:11434/api/tags &>/dev/null; then
-  log_doing "Ollama 서버 기동 중 (모델 pull용)..."
-  ollama serve &>/dev/null &
-  OLLAMA_PID=$!
-  OLLAMA_STARTED=true
-  # 서버 준비 대기 (최대 15초)
-  for i in $(seq 1 15); do
-    curl -s http://127.0.0.1:11434/api/tags &>/dev/null && break
-    sleep 1
-  done
-  if ! curl -s http://127.0.0.1:11434/api/tags &>/dev/null; then
-    log_stop "Ollama 서버 기동 실패"
-  fi
-  log_ok "Ollama 서버 기동 완료 (PID: $OLLAMA_PID)"
-fi
-
-pull_model() {
-  local MODEL="$1"
-  if ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$MODEL"; then
-    log_ok "모델 이미 존재: $MODEL (건너뜀)"
-  else
-    log_doing "모델 pull 중: $MODEL"
-    ollama pull "$MODEL" || log_stop "모델 pull 실패: $MODEL"
-    log_ok "모델 pull 완료: $MODEL"
-  fi
-}
-
-_PULLED_MODELS=()
-pull_model_once() {
-  local MODEL="$1"
-  local SKIP=false
-  for P in "${_PULLED_MODELS[@]:-}"; do
-    [ "$P" = "$MODEL" ] && SKIP=true && break
-  done
-  if [ "$SKIP" = true ]; then
-    log_ok "모델 중복 건너뜀: $MODEL"
-    return
-  fi
-  _PULLED_MODELS+=("$MODEL")
-  pull_model "$MODEL"
-}
-
-pull_model_once "${ORCHESTRATOR_MODEL}"
-pull_model_once "${FALLBACK_MODEL}"
-
-if [ "$OLLAMA_STARTED" = true ]; then
-  log_doing "Ollama 서버 종료 중..."
-  kill "$OLLAMA_PID" 2>/dev/null || true
-  wait "$OLLAMA_PID" 2>/dev/null || true
-  log_ok "Ollama 서버 종료 완료"
-fi
-
-# ── 4. gogcli 설치 ────────────────────────────────────────
-log_doing "gogcli 확인"
-
-if ! command -v gog &>/dev/null; then
-  # go.mod에서 요구 Go 버전 동적으로 읽기
-  log_doing "gogcli 요구 Go 버전 확인 중..."
-  GO_REQUIRED=$(curl -s https://raw.githubusercontent.com/steipete/gogcli/main/go.mod \
-    | grep '^go ' | awk '{print $2}')
-
-  [ -z "$GO_REQUIRED" ] && log_stop "gogcli go.mod에서 Go 버전을 읽지 못했습니다."
-  log_ok "gogcli 요구 Go 버전: $GO_REQUIRED"
-
-  # 공식 Go 바이너리 설치
-  log_doing "Go $GO_REQUIRED 설치 중..."
-  GO_TAR="go${GO_REQUIRED}.linux-amd64.tar.gz"
-  curl -fOL "https://go.dev/dl/${GO_TAR}" \
-    || log_stop "Go $GO_REQUIRED 다운로드 실패"
-  rm -rf /usr/local/go
-  tar -C /usr/local -xzf "$GO_TAR"
-  rm -f "$GO_TAR"
-  export PATH=$PATH:/usr/local/go/bin
-  log_ok "Go $(go version) 설치 완료"
-
-  # 빌드 의존성 및 gogcli 빌드
-  log_doing "빌드 의존성 설치 중..."
-  apt-get install -y make build-essential -qq
-
-  log_doing "gogcli 빌드 중..."
-  cd /tmp
-  rm -rf gogcli
-  git clone https://github.com/steipete/gogcli.git
-  cd gogcli
-  make || log_stop "gogcli make 실패"
-  cp bin/gog /usr/local/bin/gog
-  chmod +x /usr/local/bin/gog
-  cd "$SCRIPT_DIR"
-  log_ok "gogcli 설치 완료: $(gog --version)"
 else
-  log_ok "gogcli 이미 설치됨: $(gog --version)"
+  log_doing "Ollama 바이너리 직접 설치 중 (${OLLAMA_BIN_DIR})..."
+
+  OLLAMA_VERSION=$(curl -sf "https://api.github.com/repos/ollama/ollama/releases/latest" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])" 2>/dev/null || echo "v0.6.8")
+
+  OLLAMA_URL="https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/ollama-linux-amd64"
+  log_doing "다운로드: ${OLLAMA_URL}"
+
+  mkdir -p "$OLLAMA_BIN_DIR"
+  curl -fL "$OLLAMA_URL" -o "${OLLAMA_BIN_DIR}/ollama" \
+    || log_stop "Ollama 다운로드 실패"
+  chmod +x "${OLLAMA_BIN_DIR}/ollama"
+
+  export PATH="${OLLAMA_BIN_DIR}:$PATH"
+  log_ok "Ollama 설치 완료: $(ollama --version 2>/dev/null | head -1) → ${OLLAMA_BIN_DIR}"
 fi
 
-# ── 4-1. Chromium 헤드리스 설치 ──────────────────────────
-# Ubuntu 24.04에서 chromium-browser는 snap wrapper라 CAP_SETFCAP 오류 발생
-# xtradeb PPA(ppa:xtradeb/apps)를 통해 deb 패키지로 설치
-log_doing "Chromium 확인"
-
-if ! command -v chromium &>/dev/null; then
-  log_doing "Chromium 설치 중 (xtradeb PPA)..."
-  apt-mark hold snapd 2>/dev/null || true
-  apt-get install -y software-properties-common -qq
-  add-apt-repository ppa:xtradeb/apps -y
-  apt-get update -qq
-  if apt-get install -y chromium --no-install-recommends -qq 2>/dev/null; then
-    log_ok "Chromium 설치 완료: $(chromium --version 2>/dev/null | head -1)"
-  else
-    log_warn "Chromium 설치 실패 — 브라우저 자동화 비활성화. 핵심 기능에는 영향 없음"
-  fi
-else
-  log_ok "Chromium 이미 설치됨: $(chromium --version 2>/dev/null | head -1)"
-fi
-
-# ── 5. OpenClaw 설치 ──────────────────────────────────────
+# ── 4. OpenClaw 설치 ──────────────────────────────────────
 log_doing "OpenClaw 확인"
 
 if ! command -v openclaw &>/dev/null; then
@@ -229,32 +145,21 @@ else
   log_ok "OpenClaw 이미 설치됨: $(openclaw --version)"
 fi
 
+# ── 5. Python 패키지 설치 ─────────────────────────────────
+log_doing "Python 패키지 설치 (python-docx, openpyxl, python-pptx, lxml)"
+
+pip install --quiet python-docx openpyxl python-pptx lxml \
+  || log_warn "pip install 실패 — 수동으로 설치하세요: pip install python-docx openpyxl python-pptx lxml"
+log_ok "Python 패키지 설치 완료"
+
 # ── 6. openclaw.json 생성 ─────────────────────────────────
 # ref: https://docs.openclaw.ai
 log_doing "openclaw.json 생성 중..."
 
 mkdir -p "$OPENCLAW_DIR"
 GW_TOKEN=$(openssl rand -hex 24)
-
-# 중복 제거된 모델 JSON 배열 생성
-_SEEN_MODELS=()
-MODELS_JSON=""
-_add_model_json() {
-  local M="$1"
-  local SKIP=false
-  for S in "${_SEEN_MODELS[@]:-}"; do [ "$S" = "$M" ] && SKIP=true && break; done
-  [ "$SKIP" = true ] && return
-  _SEEN_MODELS+=("$M")
-  local ENTRY
-  ENTRY=$(printf '          {\n            "id": "%s",\n            "name": "%s",\n            "contextWindow": 131072,\n            "maxTokens": 8192,\n            "reasoning": false,\n            "input": ["text"],\n            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }\n          }' "$M" "$M")
-  if [ -n "$MODELS_JSON" ]; then
-    MODELS_JSON="${MODELS_JSON},"$'\n'"${ENTRY}"
-  else
-    MODELS_JSON="${ENTRY}"
-  fi
-}
-_add_model_json "${ORCHESTRATOR_MODEL}"
-_add_model_json "${FALLBACK_MODEL}"
+WORK_DIR="/workspace/work"
+mkdir -p "$WORK_DIR"
 
 cat > "$OPENCLAW_DIR/openclaw.json" << EOF
 {
@@ -262,85 +167,74 @@ cat > "$OPENCLAW_DIR/openclaw.json" << EOF
     "mode": "merge",
     "providers": {
       "ollama": {
-        "baseUrl": "http://127.0.0.1:11434",
+        "baseUrl": "http://127.0.0.1:11434/v1",
         "apiKey": "ollama-local",
-        "api": "ollama",
+        "api": "openai-completions",
         "models": [
-${MODELS_JSON}
+          {
+            "id": "${OLLAMA_MODEL}:latest",
+            "name": "${OLLAMA_MODEL}:latest",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 32768,
+            "maxTokens": 8192,
+            "compat": { "supportsDeveloperRole": false }
+          }
         ]
       }
     }
   },
   "agents": {
     "defaults": {
-      "compaction": {
-        "mode": "safeguard"
-      }
-    },
-    "list": [
-      {
-        "id": "orchestrator",
-        "workspace": "${OPENCLAW_DIR}/workspace-orchestrator",
-        "model": {
-          "primary": "ollama/${ORCHESTRATOR_MODEL}",
-          "fallbacks": ["ollama/${FALLBACK_MODEL}"]
-        }
-      }
-    ]
-  },
-  "bindings": [
-    { "agentId": "orchestrator", "match": { "channel": "telegram" } }
-  ],
-  "channels": {
-    "telegram": {
-      "botToken": "${TELEGRAM_BOT_TOKEN}",
-      "dmPolicy": "open",
-      "allowFrom": ["*"],
-      "retry": {
-        "attempts": 5,
-        "minDelayMs": 1000,
-        "maxDelayMs": 30000,
-        "jitter": 0.1
-      }
+      "model": { "primary": "ollama/${OLLAMA_MODEL}:latest" },
+      "workspace": "${OPENCLAW_DIR}/workspace"
     }
-  },
-  "session": {
-    "reset": {
-      "mode": "daily"
-    }
-  },
-  "env": {
-    "GOG_ACCOUNT": "${GOOGLE_ACCOUNT}",
-    "GOG_ACCESS_TOKEN": ""
   },
   "tools": {
+    "profile": "full",
+    "deny": ["session_status"],
+    "web": { "search": { "enabled": true, "provider": "duckduckgo" } },
     "exec": {
-      "host": "gateway"
+      "host": "gateway",
+      "security": "full",
+      "ask": "off",
+      "pathPrepend": ["/workspace/ollama/bin", "/workspace/node/bin", "/opt/conda/bin"]
     }
   },
-  "plugins": {
-    "entries": {
-      "telegram": {
-        "enabled": true
-      },
-      "duckduckgo": {
-        "enabled": true
-      }
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "pairing",
+      "botToken": "${TELEGRAM_BOT_TOKEN}",
+      "streaming": "partial"
     }
   },
   "gateway": {
     "port": 18789,
     "mode": "local",
     "bind": "loopback",
-    "trustedProxies": ["127.0.0.1"],
-    "controlUi": {
-      "dangerouslyAllowHostHeaderOriginFallback": true
-    },
-    "auth": {
-      "mode": "token",
-      "token": "${GW_TOKEN}"
+    "controlUi": { "allowInsecureAuth": true },
+    "auth": { "mode": "token", "token": "${GW_TOKEN}" }
+  },
+  "plugins": {
+    "entries": { "duckduckgo": { "enabled": true, "config": {} } }
+  },
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": { "session-memory": { "enabled": true } }
     }
-  }
+  },
+  "env": {
+    "vars": {
+      "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
+      "OUTPUT_DIR": "/workspace/work",
+      "OPENCLAW_CONFIG": "${OPENCLAW_DIR}/openclaw.json",
+      "OPENCLAW_WORKSPACE": "${OPENCLAW_DIR}/workspace"
+    }
+  },
+  "session": { "dmScope": "per-channel-peer" }
 }
 EOF
 
@@ -350,15 +244,9 @@ log_ok "openclaw.json 생성 완료: $OPENCLAW_DIR/openclaw.json"
 log_doing "~/.openclaw/.env 생성 중..."
 
 {
-  printf 'TELEGRAM_BOT_TOKEN=%s\n'    "${TELEGRAM_BOT_TOKEN}"
-  printf 'GOOGLE_CLIENT_ID=%s\n'      "${GOOGLE_CLIENT_ID}"
-  printf 'GOOGLE_CLIENT_SECRET=%s\n'  "${GOOGLE_CLIENT_SECRET}"
-  printf 'GOOGLE_REFRESH_TOKEN=%s\n'  "${GOOGLE_REFRESH_TOKEN}"
-  printf 'GOOGLE_ACCOUNT=%s\n'        "${GOOGLE_ACCOUNT:-}"
-  printf 'ORCHESTRATOR_MODEL=%s\n'    "${ORCHESTRATOR_MODEL}"
-  printf 'FALLBACK_MODEL=%s\n'        "${FALLBACK_MODEL}"
-  printf 'OLLAMA_API_KEY=%s\n'        "ollama-local"
-  printf 'DRIVE_MEMORY_FOLDER=%s\n'   "${DRIVE_MEMORY_FOLDER:-openclaw-memory}"
+  printf 'TELEGRAM_BOT_TOKEN=%s\n' "${TELEGRAM_BOT_TOKEN}"
+  printf 'OLLAMA_MODEL=%s\n'       "${OLLAMA_MODEL}"
+  printf 'ANTHROPIC_API_KEY=%s\n'  "${ANTHROPIC_API_KEY:-}"
 } > "$OPENCLAW_DIR/.env"
 chmod 600 "$OPENCLAW_DIR/.env"
 

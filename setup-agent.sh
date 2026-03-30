@@ -1,14 +1,13 @@
 #!/bin/bash
 # =============================================================
 # openclaw-ollama-dev / setup-agent.sh
-# 에이전트 워크스페이스 구성 및 Google 연동 확인 스크립트
+# 에이전트 워크스페이스 구성 및 스킬 설치 스크립트
 #
 # 사전 조건: setup.sh 완료
 #
 # 참고 문서:
 #   OpenClaw  : https://docs.openclaw.ai
-#   gogcli    : https://github.com/steipete/gogcli
-#   Google OAuth: https://developers.google.com/identity/protocols/oauth2
+#   clawhub   : https://docs.openclaw.ai/skills
 # =============================================================
 
 set -eo pipefail
@@ -34,10 +33,14 @@ log_next()   { echo -e "${BOLD_GREEN}[ NEXT  ]${NC} $1"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPENCLAW_DIR="$HOME/.openclaw"
+GATEWAY_LOG="$OPENCLAW_DIR/gateway-setup.log"
 
 log_start "에이전트 워크스페이스 설정 시작"
 
-# ── 1. ~/.openclaw/.env 로드 ──────────────────────────────
+# ── 1. PATH 설정 ──────────────────────────────────────────
+export PATH="/workspace/node/bin:/workspace/ollama/bin:$PATH"
+
+# ── 2. ~/.openclaw/.env 로드 ──────────────────────────────
 log_doing "~/.openclaw/.env 로드"
 
 if [ ! -f "$OPENCLAW_DIR/.env" ]; then
@@ -49,88 +52,23 @@ set -a
 source "$OPENCLAW_DIR/.env"
 set +a
 
-for _VAR in ORCHESTRATOR_MODEL FALLBACK_MODEL; do
+for _VAR in TELEGRAM_BOT_TOKEN OLLAMA_MODEL; do
   if [ -z "${!_VAR}" ]; then
     log_stop "${_VAR} 미설정. setup.sh 를 먼저 실행해 주세요."
   fi
 done
 
-log_ok "orchestrator: $ORCHESTRATOR_MODEL"
-log_ok "fallback:     $FALLBACK_MODEL"
+log_ok "model: $OLLAMA_MODEL"
 
-# ── 2. 워크스페이스 파일 복사 ─────────────────────────────
-log_doing "워크스페이스 파일 복사"
-
-SRC="$SCRIPT_DIR/config/workspace-orchestrator"
-DEST="$OPENCLAW_DIR/workspace-orchestrator"
-
-if [ -d "$SRC" ]; then
-  mkdir -p "$DEST"
-  cp -r "$SRC/." "$DEST/"
-  log_ok "  orchestrator: 복사 완료 → $DEST"
-else
-  log_stop "config/workspace-orchestrator/ 없음"
-fi
-
-# ── 3. USER.md {{GOOGLE_ACCOUNT}} 치환 ───────────────────
-log_doing "USER.md Google 계정 주입"
-
-USER_MD="$OPENCLAW_DIR/workspace-orchestrator/USER.md"
-if [ -f "$USER_MD" ]; then
-  sed -i "s/{{GOOGLE_ACCOUNT}}/${GOOGLE_ACCOUNT:-}/g" "$USER_MD"
-  if [ -n "$GOOGLE_ACCOUNT" ]; then
-    log_ok "USER.md 치환 완료: $GOOGLE_ACCOUNT"
-  else
-    log_warn "GOOGLE_ACCOUNT 미설정 — USER.md의 계정 정보가 비어 있습니다."
-  fi
-else
-  log_warn "USER.md 없음: $USER_MD"
-fi
-
-# ── 4. Access Token 발급 ──────────────────────────────────
-log_doing "Google Access Token 발급"
-
-RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
-  -d "grant_type=refresh_token" \
-  -d "client_id=$GOOGLE_CLIENT_ID" \
-  -d "client_secret=$GOOGLE_CLIENT_SECRET" \
-  -d "refresh_token=$GOOGLE_REFRESH_TOKEN")
-
-ACCESS_TOKEN=$(echo "$RESPONSE" | python3 -c \
-  "import sys,json; d=json.load(sys.stdin); print(d.get('access_token',''))" 2>/dev/null || true)
-
-if [ -z "$ACCESS_TOKEN" ]; then
-  ERROR_MSG=$(echo "$RESPONSE" | python3 -c \
-    "import sys,json; d=json.load(sys.stdin); print(d.get('error_description', d.get('error','알 수 없는 오류')))" 2>/dev/null || echo "응답 파싱 실패")
-  log_error "Access Token 발급 실패: $ERROR_MSG"
-  log_stop "Google OAuth 설정(.env의 GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN)을 확인하세요."
-fi
-
-export GOG_ACCESS_TOKEN=$ACCESS_TOKEN
-log_ok "Access Token 발급 완료"
-
-# ── 5. gog 연동 확인 ──────────────────────────────────────
-log_doing "gog Gmail 연동 확인"
-
-if ! command -v gog &>/dev/null; then
-  log_stop "gog 명령어를 찾을 수 없습니다. setup.sh 를 먼저 실행해 주세요."
-fi
-
-if gog gmail search 'is:unread' --max 1 &>/dev/null; then
-  log_ok "gog Gmail 연동 정상"
-else
-  log_stop "gog Gmail 연동 실패. .env의 GOOGLE_REFRESH_TOKEN이 유효한지, OAuth Playground에서 gmail 스코프를 포함해서 발급했는지 확인하세요."
-fi
-
-# ── 6. openclaw.json 설정 확인 ────────────────────────────
-# gateway 기동은 run.sh에서만 담당 — 이 스크립트에서 기동하지 않음
+# ── 3. openclaw.json 설정 검증 ────────────────────────────
 log_doing "openclaw.json 설정 확인"
 
 OPENCLAW_JSON="$OPENCLAW_DIR/openclaw.json"
 if [ ! -f "$OPENCLAW_JSON" ]; then
-  log_warn "openclaw.json 없음. setup.sh 를 먼저 실행해 주세요."
-else
-  python3 << PYEOF
+  log_stop "openclaw.json 없음. setup.sh 를 먼저 실행해 주세요."
+fi
+
+python3 << PYEOF
 import json, sys
 
 with open("$OPENCLAW_JSON") as f:
@@ -138,48 +76,146 @@ with open("$OPENCLAW_JSON") as f:
 
 ok = True
 
-# agents.list에 orchestrator 확인
-agent_ids = [a["id"] for a in c.get("agents", {}).get("list", [])]
-if "orchestrator" not in agent_ids:
-    print(f"\033[1;33m[ WARN  ]\033[0m agents.list에 orchestrator 없음 → setup.sh 재실행 필요")
-    ok = False
-else:
-    print(f"\033[0;32m[  OK   ]\033[0m agents.list: orchestrator 확인")
-
-# bindings 확인
-bindings = c.get("bindings", [])
-has_binding = any(
-    b.get("agentId") == "orchestrator" and
-    b.get("match", {}).get("channel") == "telegram"
-    for b in bindings
-)
-if not has_binding:
-    print(f"\033[1;33m[ WARN  ]\033[0m orchestrator → telegram 바인딩 없음 → setup.sh 재실행 필요")
-    ok = False
-else:
-    print(f"\033[0;32m[  OK   ]\033[0m bindings: orchestrator → telegram 확인")
-
 # channels.telegram.botToken 확인
 bot_token = c.get("channels", {}).get("telegram", {}).get("botToken", "")
 if not bot_token:
-    print(f"\033[1;33m[ WARN  ]\033[0m channels.telegram.botToken 없음 → TELEGRAM_BOT_TOKEN 확인")
+    print(f"\033[1;33m[ WARN  ]\033[0m channels.telegram.botToken 없음 — TELEGRAM_BOT_TOKEN 확인")
     ok = False
 else:
     masked = bot_token[:6] + "****"
     print(f"\033[0;32m[  OK   ]\033[0m channels.telegram.botToken: {masked}")
 
+# gateway.auth.token 확인
+gw_token = c.get("gateway", {}).get("auth", {}).get("token", "")
+if not gw_token:
+    print(f"\033[1;33m[ WARN  ]\033[0m gateway.auth.token 없음 → setup.sh 재실행 필요")
+    ok = False
+else:
+    print(f"\033[0;32m[  OK   ]\033[0m gateway.auth.token: {gw_token[:6]}****")
+
+# agents.defaults.model.primary 확인
+primary = c.get("agents", {}).get("defaults", {}).get("model", {}).get("primary", "")
+if not primary:
+    print(f"\033[1;33m[ WARN  ]\033[0m agents.defaults.model.primary 없음 → setup.sh 재실행 필요")
+    ok = False
+else:
+    print(f"\033[0;32m[  OK   ]\033[0m agents.defaults.model.primary: {primary}")
+
 if ok:
     print(f"\033[1;32m[ DONE  ]\033[0m openclaw.json 설정 검증 완료")
+else:
+    sys.exit(1)
 PYEOF
+
+# ── 4. 워크스페이스 파일 복사 ─────────────────────────────
+log_doing "워크스페이스 파일 복사"
+
+SRC="$SCRIPT_DIR/config/workspace"
+DEST="$OPENCLAW_DIR/workspace"
+
+if [ ! -d "$SRC" ]; then
+  log_stop "config/workspace/ 없음 — 레포를 최신 버전으로 업데이트하세요."
 fi
 
-# ── 7. 등록 결과 출력 ─────────────────────────────────────
-log_doing "에이전트 등록 결과 확인"
+mkdir -p "$DEST"
+cp -r "$SRC/." "$DEST/"
+log_ok "워크스페이스 복사 완료 → $DEST"
 
-echo ""
-openclaw agents list   2>/dev/null || log_warn "openclaw agents list 실패 — gateway가 실행 중이 아닙니다."
-echo ""
-openclaw agents bindings 2>/dev/null || log_warn "openclaw agents bindings 실패 — gateway가 실행 중이 아닙니다."
+# ── 4-1. skills 폴더 복사 ─────────────────────────────────
+log_doing "skills 폴더 복사"
+
+SKILLS_SRC="$SCRIPT_DIR/config/workspace/skills"
+SKILLS_DEST="$OPENCLAW_DIR/workspace/skills"
+
+if [ -d "$SKILLS_SRC" ]; then
+  mkdir -p "$SKILLS_DEST"
+  cp -r "$SKILLS_SRC/." "$SKILLS_DEST/"
+  log_ok "skills 복사 완료 → $SKILLS_DEST"
+else
+  log_warn "config/workspace/skills/ 없음 — 스킵"
+fi
+
+# ── 4-2. Python 패키지 확인 ───────────────────────────────
+log_doing "Python 패키지 확인 (python-docx, openpyxl, python-pptx)"
+
+if ! python3 -c "import docx, openpyxl, pptx" 2>/dev/null; then
+  log_doing "Python 패키지 설치 중..."
+  pip install --quiet python-docx openpyxl python-pptx lxml \
+    || log_warn "pip install 실패 — 수동으로 실행: pip install python-docx openpyxl python-pptx lxml"
+  log_ok "Python 패키지 설치 완료"
+else
+  log_ok "Python 패키지 확인 완료"
+fi
+
+# ── 4-3. OUTPUT_DIR 생성 ──────────────────────────────────
+log_doing "출력 디렉토리 생성 (/workspace/work)"
+mkdir -p /workspace/work
+log_ok "/workspace/work 생성 완료"
+
+# ── 5. openclaw gateway 임시 기동 (스킬 설치용) ───────────
+log_doing "openclaw gateway 임시 기동 (스킬 설치용)"
+
+# 기존 gateway 종료
+pkill -f 'openclaw gateway' 2>/dev/null || true
+sleep 1
+
+openclaw gateway > "$GATEWAY_LOG" 2>&1 &
+GATEWAY_PID=$!
+
+# 포트 18789 응답까지 대기 (최대 30초)
+READY=false
+for i in $(seq 1 30); do
+  if curl -sf http://127.0.0.1:18789/ &>/dev/null; then
+    READY=true
+    break
+  fi
+  sleep 1
+done
+
+if [ "$READY" = false ]; then
+  log_warn "gateway 기동 실패 — openclaw doctor --fix 실행 중..."
+  openclaw doctor --fix 2>&1 | tee -a "$GATEWAY_LOG" || true
+  sleep 3
+
+  pkill -f 'openclaw gateway' 2>/dev/null || true
+  sleep 1
+  openclaw gateway >> "$GATEWAY_LOG" 2>&1 &
+  GATEWAY_PID=$!
+
+  READY=false
+  for i in $(seq 1 30); do
+    if curl -sf http://127.0.0.1:18789/ &>/dev/null; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$READY" = false ]; then
+    log_stop "openclaw gateway 기동 실패. 로그 확인: $GATEWAY_LOG"
+  fi
+fi
+
+log_ok "openclaw gateway 임시 기동 완료 (PID: $GATEWAY_PID)"
+
+# ── 6. 스킬 설치 ──────────────────────────────────────────
+log_doing "스킬 설치: felo-slides"
+npx clawhub@latest install felo-slides \
+  || log_warn "felo-slides 설치 실패 — 수동으로 재시도: npx clawhub@latest install felo-slides"
+log_ok "felo-slides 설치 완료"
+
+log_doing "스킬 설치: office-document-specialist-suite"
+npx clawhub@latest install office-document-specialist-suite \
+  || log_warn "office-document-specialist-suite 설치 실패 — 수동으로 재시도: npx clawhub@latest install office-document-specialist-suite"
+log_ok "office-document-specialist-suite 설치 완료"
+
+# ── 7. gateway 종료 ───────────────────────────────────────
+log_doing "임시 gateway 종료"
+kill "$GATEWAY_PID" 2>/dev/null || true
+wait "$GATEWAY_PID" 2>/dev/null || true
+pkill -f 'openclaw gateway' 2>/dev/null || true
+sleep 1
+log_ok "gateway 종료 완료"
 
 # ── 완료 ──────────────────────────────────────────────────
 echo ""

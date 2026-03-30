@@ -16,3 +16,6 @@ Thumbs.db
 *.tmp.claude/
 CLAUDE.md
 spec/
+
+# 레포 덤프
+repo_dump.txt
