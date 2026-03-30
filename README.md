@@ -30,7 +30,7 @@ Telegram으로 메시지를 보내면 Clari가 웹 검색, Word/Excel/PPT 파일
 
 gcube 대시보드에서 워크로드 배포 시 아래 이미지와 환경변수를 설정한다.
 
-**이미지**: `unsloth/unsloth` (CUDA 지원 포함)
+**이미지**: `ollama/ollama:latest`
 
 **권장 GPU**:
 

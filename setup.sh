@@ -39,6 +39,14 @@ WORKSPACE_BIN="/workspace"
 
 log_start "OpenClaw 설치 시작"
 
+# ── 0. 필수 패키지 설치 ────────────────────────────────────
+log_doing "필수 패키지 설치 (apt-get)"
+
+apt-get update -y && apt-get install -y python3 python3-pip curl git nodejs \
+  || log_warn "apt-get 설치 실패 — 패키지가 이미 설치돼 있을 수 있습니다"
+
+log_ok "패키지 설치 완료"
+
 # ── 1. 환경변수 검증 ──────────────────────────────────────
 log_doing "환경변수 확인"
 
